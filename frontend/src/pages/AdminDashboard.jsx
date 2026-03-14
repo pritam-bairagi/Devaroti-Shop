@@ -150,24 +150,53 @@ const AdminDashboard = () => {
         }
     };
 
-    const handleProductSubmit = async (e) => {
-        e.preventDefault();
-        try {
-            const data = { ...productForm, price: productForm.sellingPrice };
-            if (editingItem) {
-                await API.put(`/products/${editingItem._id}`, data);
-                toast.success("Product updated");
-            } else {
-                await API.post("/products", data);
-                toast.success("Product created");
-            }
+    // Update the handleProductSubmit function in AdminDashboard.jsx
 
-            setIsProductModalOpen(false);
-            fetchAllData();
-        } catch (error) {
-            toast.error(error.response?.data?.message || "Operation failed");
-        }
+const handleProductSubmit = async (e) => {
+  e.preventDefault();
+  
+  // Validate required fields
+  if (!productForm.name || !productForm.sellingPrice || !productForm.purchasePrice || 
+      !productForm.category || !productForm.image) {
+    toast.error('Please fill in all required fields');
+    return;
+  }
+
+  try {
+    const data = { 
+      ...productForm, 
+      price: productForm.sellingPrice,
+      sellingPrice: Number(productForm.sellingPrice),
+      purchasePrice: Number(productForm.purchasePrice),
+      stock: Number(productForm.stock) || 0
     };
+    
+    console.log('Submitting product:', data);
+    
+    if (editingItem) {
+      const response = await productAPI.updateProduct(editingItem._id, data);
+      if (response.data.success) {
+        toast.success('Product updated successfully');
+      }
+    } else {
+      const response = await productAPI.createProduct(data);
+      if (response.data.success) {
+        toast.success('Product created successfully');
+      }
+    }
+
+    setIsProductModalOpen(false);
+    setEditingItem(null);
+    setProductForm({
+      name: "", sellingPrice: "", purchasePrice: "", description: "", 
+      category: "General", image: "", stock: 0, unit: "পিস", liveStatus: "live"
+    });
+    fetchAllData();
+  } catch (error) {
+    console.error('Product operation error:', error);
+    toast.error(error.response?.data?.message || 'Operation failed');
+  }
+};
 
     const handleUserSubmit = async (e) => {
         e.preventDefault();

@@ -117,25 +117,47 @@ function ProductDetailPage({ product, allProducts, cart, wishlist, onAddCart, on
   const discount = product.oldPrice ? Math.round((1 - product.price / product.oldPrice) * 100) : null;
   const images = product.images?.length ? product.images : [product.image || '/placeholder.png'];
 
-  const handleAddToCart = async () => {
-    if (!user) {
-      toast.error('Please login to add items to cart');
-      return;
-    }
-    try {
-      const response = await axios.post('/api/users/cart', {
-        productId: product._id,
-        quantity: quantity
-      });
-      if (response.data.success) {
-        toast.success('Added to cart');
-        setUser({ ...user, cart: response.data.cart });
-        onAddCart(product, quantity);
+const handleAddToCart = async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  
+  if (!user) {
+    toast.error('Please login to add items to cart');
+    return;
+  }
+
+  if (!product.inStock) {
+    toast.error('Product out of stock');
+    return;
+  }
+
+  try {
+    console.log('Adding to cart:', product._id);
+    
+    const response = await axios.post('/api/users/cart', {
+      productId: product._id,
+      quantity: 1
+    }, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('token')}`
       }
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Error adding to cart');
+    });
+    
+    console.log('Cart response:', response.data);
+    
+    if (response.data.success) {
+      toast.success('Added to cart');
+      // Update user context
+      if (setUser && user) {
+        setUser({ ...user, cart: response.data.cart });
+      }
+      onAddCart?.(product);
     }
-  };
+  } catch (error) {
+    console.error('Add to cart error:', error);
+    toast.error(error.response?.data?.message || 'Failed to add to cart');
+  }
+};
 
   const handleToggleWishlist = async () => {
     if (!user) {

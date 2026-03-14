@@ -115,47 +115,94 @@ const Cart = () => {
     }
   };
 
-  const handleCheckout = async () => {
-    // Validate shipping address
-    if (!shippingAddress.fullName || !shippingAddress.addressLine1 || 
-        !shippingAddress.city || !shippingAddress.phoneNumber) {
-      toast.error('Please fill in all required shipping fields');
+  // Update the handleCheckout function in Cart.jsx
+
+const handleCheckout = async () => {
+  // Validate shipping address
+  if (!shippingAddress.fullName || !shippingAddress.addressLine1 || 
+      !shippingAddress.city || !shippingAddress.phoneNumber) {
+    toast.error('Please fill in all required shipping fields');
+    return;
+  }
+
+  setLoading(true);
+  try {
+    // Validate cart items
+    if (!cartItems || cartItems.length === 0) {
+      toast.error('Your cart is empty');
       return;
     }
 
-    setLoading(true);
-    try {
-      const orderData = {
-        items: cartItems.map(item => ({
-          product: item.product._id,
-          quantity: item.quantity,
-          price: item.product.sellingPrice,
-          seller: item.product.user?._id || item.product.user
-        })),
-        subtotal: calculateSubtotal(),
-        vat: calculateVAT(),
-        discount,
-        shippingCost: 0,
-        totalPrice: calculateTotal(),
-        shippingAddress,
-        paymentMethod,
-        deliveryOption: 'standard'
-      };
-
-      const response = await orderAPI.createOrder(orderData);
-      
-      if (response.data.success) {
-        toast.success('Order placed successfully!');
-        // Clear cart in context
-        setUser({ ...user, cart: [] });
-        navigate('/dashboard?tab=orders');
+    // Prepare items for order
+    const orderItems = cartItems.map(item => {
+      if (!item.product || !item.product._id) {
+        throw new Error('Invalid cart item');
       }
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Checkout failed');
-    } finally {
-      setLoading(false);
+      return {
+        product: item.product._id,
+        quantity: Number(item.quantity) || 1,
+        price: Number(item.product.sellingPrice) || 0
+      };
+    });
+
+    const subtotal = calculateSubtotal();
+    const vatAmount = calculateVAT();
+    const total = calculateTotal();
+
+    const orderData = {
+      items: orderItems,
+      subtotal: subtotal,
+      vat: vatAmount,
+      discount: discount || 0,
+      shippingCost: 0,
+      totalPrice: total,
+      shippingAddress: {
+        fullName: shippingAddress.fullName,
+        addressLine1: shippingAddress.addressLine1,
+        addressLine2: shippingAddress.addressLine2 || '',
+        city: shippingAddress.city,
+        state: shippingAddress.state || '',
+        postalCode: shippingAddress.postalCode || '',
+        phoneNumber: shippingAddress.phoneNumber
+      },
+      paymentMethod: paymentMethod
+    };
+
+    console.log('📦 Sending order data:', orderData);
+    
+    const response = await orderAPI.createOrder(orderData);
+    console.log('✅ Order response:', response.data);
+    
+    if (response.data.success) {
+      toast.success('Order placed successfully!');
+      
+      // Clear cart in context
+      if (user) {
+        const updatedUser = { ...user, cart: [] };
+        setUser(updatedUser);
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+      }
+      
+      // Navigate to orders page
+      setTimeout(() => {
+        navigate('/dashboard?tab=orders');
+      }, 1500);
     }
-  };
+  } catch (error) {
+    console.error('❌ Checkout error:', error);
+    
+    // Show specific error message
+    if (error.response?.data?.message) {
+      toast.error(error.response.data.message);
+    } else if (error.response?.data?.error) {
+      toast.error(error.response.data.error);
+    } else {
+      toast.error('Failed to create order. Please try again.');
+    }
+  } finally {
+    setLoading(false);
+  }
+};
 
   if (cartItems.length === 0) {
     return (

@@ -9,7 +9,8 @@ const { validationResult } = require('express-validator');
 // @access  Private
 exports.createOrder = async (req, res) => {
   try {
-    // Validation
+    console.log('📦 Create order request received');
+    
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
@@ -21,154 +22,154 @@ exports.createOrder = async (req, res) => {
     const {
       items,
       subtotal,
-      discount,
-      vat,
-      shippingCost,
+      discount = 0,
+      vat = 0,
+      shippingCost = 0,
       totalPrice,
       shippingAddress,
-      billingAddress,
-      paymentMethod,
-      deliveryOption,
-      deliveryInstructions
+      paymentMethod
     } = req.body;
 
-    if (!items || items.length === 0) {
+    if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'No order items'
+        message: 'No order items provided'
       });
     }
 
-    // Verify stock and calculate seller earnings
     const processedItems = [];
+    let calculatedSubtotal = 0;
     let platformCommission = 0;
     let sellerEarnings = 0;
-    const sellerItems = {};
+    const sellersMap = new Map();
 
     for (const item of items) {
       const product = await Product.findById(item.product);
-
+      
       if (!product) {
         return res.status(400).json({
           success: false,
-          message: `Product not found: ${item.product}`
+          message: `Product not found`
         });
       }
 
-      if (product.stock < item.quantity) {
+      const quantity = Number(item.quantity) || 1;
+      if (product.stock < quantity) {
         return res.status(400).json({
           success: false,
           message: `Insufficient stock for ${product.name}`
         });
       }
 
-      // Calculate commission (2% platform fee)
-      const itemTotal = item.price * item.quantity;
+      const itemPrice = Number(item.price) || product.sellingPrice;
+      const itemTotal = itemPrice * quantity;
+      calculatedSubtotal += itemTotal;
+
       const commission = itemTotal * 0.02;
       platformCommission += commission;
-      sellerEarnings += itemTotal - commission;
+      const sellerEarning = itemTotal - commission;
+      sellerEarnings += sellerEarning;
 
-      // Group items by seller
-      const sellerId = product.user.toString();
-      if (!sellerItems[sellerId]) {
-        sellerItems[sellerId] = {
-          sellerId,
-          items: [],
-          subtotal: 0,
-          commission: 0,
-          sellerEarnings: 0
-        };
-      }
-
-      const orderItem = {
+      processedItems.push({
         product: product._id,
-        quantity: item.quantity,
-        price: item.price,
+        quantity: quantity,
+        price: itemPrice,
         purchasePrice: product.purchasePrice || 0,
         name: product.name,
         image: product.image,
         seller: product.user
-      };
-
-      processedItems.push(orderItem);
-
-      sellerItems[sellerId].items.push({
-        productId: product._id,
-        quantity: item.quantity,
-        price: item.price
       });
-      sellerItems[sellerId].subtotal += itemTotal;
-      sellerItems[sellerId].commission += commission;
-      sellerItems[sellerId].sellerEarnings += itemTotal - commission;
+
+      const sellerId = product.user.toString();
+      if (!sellersMap.has(sellerId)) {
+        sellersMap.set(sellerId, {
+          sellerId: product.user,
+          items: [],
+          subtotal: 0,
+          commission: 0,
+          sellerEarnings: 0
+        });
+      }
+      
+      const sellerData = sellersMap.get(sellerId);
+      sellerData.items.push({
+        productId: product._id,
+        quantity: quantity,
+        price: itemPrice
+      });
+      sellerData.subtotal += itemTotal;
+      sellerData.commission += commission;
+      sellerData.sellerEarnings += sellerEarning;
     }
 
-    // Create order
-    const order = await Order.create({
+    const expectedTotal = calculatedSubtotal + Number(shippingCost) + Number(vat) - Number(discount);
+
+    const orderData = {
       user: req.user.id,
       items: processedItems,
-      subtotal,
-      discount,
-      vat,
-      shippingCost,
-      totalPrice,
-      shippingAddress,
-      billingAddress: billingAddress || shippingAddress,
+      subtotal: calculatedSubtotal,
+      discount: Number(discount) || 0,
+      vat: Number(vat) || 0,
+      shippingCost: Number(shippingCost) || 0,
+      totalPrice: expectedTotal,
+      shippingAddress: {
+        fullName: shippingAddress.fullName || req.user.name,
+        addressLine1: shippingAddress.addressLine1,
+        addressLine2: shippingAddress.addressLine2 || '',
+        city: shippingAddress.city,
+        state: shippingAddress.state || '',
+        postalCode: shippingAddress.postalCode || '',
+        country: 'Bangladesh',
+        phoneNumber: shippingAddress.phoneNumber || req.user.phoneNumber
+      },
+      billingAddress: shippingAddress,
       paymentMethod,
-      deliveryOption: deliveryOption || 'standard',
-      deliveryInstructions,
+      deliveryOption: 'standard',
       paymentStatus: paymentMethod === 'Cash on Delivery' ? 'pending' : 'paid',
       isPaid: paymentMethod !== 'Cash on Delivery',
       paidAt: paymentMethod !== 'Cash on Delivery' ? new Date() : null,
       platformCommission,
       sellerEarnings,
-      sellers: Object.values(sellerItems),
+      sellers: Array.from(sellersMap.values()),
       statusHistory: [{
         status: 'pending',
         date: new Date(),
         note: 'Order placed successfully'
       }]
-    });
+    };
 
-    // Deduct stock for each item
+    const order = new Order(orderData);
+    await order.save();
+
     for (const item of items) {
       const product = await Product.findById(item.product);
       if (product) {
-        product.stock -= item.quantity;
-        product.soldCount = (product.soldCount || 0) + item.quantity;
+        product.stock -= Number(item.quantity) || 1;
+        product.soldCount = (product.soldCount || 0) + (Number(item.quantity) || 1);
         await product.save();
       }
     }
 
-    // Clear user cart
     const user = await User.findById(req.user.id);
-    user.cart = [];
-    await user.save();
-
-    // Create transaction record for paid orders
-    if (paymentMethod !== 'Cash on Delivery') {
-      await Transaction.create({
-        type: 'Cash In',
-        amount: totalPrice,
-        description: `Payment for order ${order.orderNumber}`,
-        category: 'sales',
-        reference: order._id,
-        referenceModel: 'Order',
-        paymentMethod,
-        user: req.user.id,
-        date: new Date()
-      });
+    if (user) {
+      user.cart = [];
+      await user.save();
     }
+
+    const populatedOrder = await Order.findById(order._id)
+      .populate('items.product', 'name image price');
 
     res.status(201).json({
       success: true,
       message: 'Order placed successfully',
-      order
+      order: populatedOrder
     });
+
   } catch (error) {
-    console.error('Create order error:', error);
+    console.error('❌ Create order error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create order'
+      message: 'Failed to create order. Please try again.'
     });
   }
 };
@@ -180,11 +181,9 @@ exports.getMyOrders = async (req, res) => {
   try {
     const { page = 1, limit = 10, status } = req.query;
 
-    // Build query
     let query = { user: req.user.id };
     if (status) query.status = status;
 
-    // Pagination
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
@@ -197,22 +196,9 @@ exports.getMyOrders = async (req, res) => {
 
     const total = await Order.countDocuments(query);
 
-    // Get order statistics
-    const stats = await Order.aggregate([
-      { $match: { user: req.user._id } },
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 },
-          totalSpent: { $sum: '$totalPrice' }
-        }
-      }
-    ]);
-
     res.status(200).json({
       success: true,
       orders,
-      stats,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -236,8 +222,7 @@ exports.getOrderById = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
       .populate('user', 'name email phoneNumber')
-      .populate('items.product', 'name image sellingPrice description')
-      .populate('items.seller', 'name shopName phoneNumber');
+      .populate('items.product', 'name image sellingPrice description');
 
     if (!order) {
       return res.status(404).json({
@@ -246,8 +231,9 @@ exports.getOrderById = async (req, res) => {
       });
     }
 
-    // Check authorization
-    if (order.user._id.toString() !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'seller') {
+    if (order.user._id.toString() !== req.user.id && 
+        req.user.role !== 'admin' && 
+        req.user.role !== 'seller') {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to view this order'
@@ -281,7 +267,6 @@ exports.cancelOrder = async (req, res) => {
       });
     }
 
-    // Check authorization
     if (order.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
@@ -289,7 +274,6 @@ exports.cancelOrder = async (req, res) => {
       });
     }
 
-    // Check if order can be cancelled
     const cancellableStatuses = ['pending', 'confirmed', 'processing'];
     if (!cancellableStatuses.includes(order.status)) {
       return res.status(400).json({
@@ -298,17 +282,15 @@ exports.cancelOrder = async (req, res) => {
       });
     }
 
-    // Restore stock
     for (const item of order.items) {
       const product = await Product.findById(item.product);
       if (product) {
         product.stock += item.quantity;
-        product.soldCount -= item.quantity;
+        product.soldCount = Math.max(0, (product.soldCount || 0) - item.quantity);
         await product.save();
       }
     }
 
-    // Update order status
     order.status = 'cancelled';
     order.cancellationReason = req.body.reason || 'Cancelled by customer';
     order.cancelledAt = new Date();
@@ -320,21 +302,6 @@ exports.cancelOrder = async (req, res) => {
     });
 
     await order.save();
-
-    // Create refund transaction if paid
-    if (order.isPaid) {
-      await Transaction.create({
-        type: 'Cash Out',
-        amount: order.totalPrice,
-        description: `Refund for cancelled order ${order.orderNumber}`,
-        category: 'refunds',
-        reference: order._id,
-        referenceModel: 'Order',
-        paymentMethod: order.paymentMethod,
-        user: req.user.id,
-        date: new Date()
-      });
-    }
 
     res.status(200).json({
       success: true,
@@ -395,7 +362,6 @@ exports.updateOrderStatus = async (req, res) => {
       });
     }
 
-    // Check seller authorization (if seller, only update orders containing their products)
     if (req.user.role === 'seller') {
       const hasSellerItems = order.sellers.some(
         s => s.sellerId.toString() === req.user.id
@@ -409,11 +375,8 @@ exports.updateOrderStatus = async (req, res) => {
       }
     }
 
-    // Update fields
     if (status) {
       order.status = status;
-
-      // If delivered, set actual delivery date
       if (status === 'delivered') {
         order.actualDeliveryDate = new Date();
       }
@@ -422,7 +385,6 @@ exports.updateOrderStatus = async (req, res) => {
     if (trackingNumber) order.trackingNumber = trackingNumber;
     if (courier) order.courier = courier;
 
-    // Add to status history
     order.statusHistory.push({
       status: status || order.status,
       date: new Date(),
@@ -453,11 +415,7 @@ exports.getSellerOrders = async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
 
-    // Find orders that contain seller's products
-    const query = {
-      'sellers.sellerId': req.user.id
-    };
-
+    const query = { 'sellers.sellerId': req.user.id };
     if (status) query.status = status;
 
     const pageNum = parseInt(page);
@@ -473,23 +431,9 @@ exports.getSellerOrders = async (req, res) => {
 
     const total = await Order.countDocuments(query);
 
-    // Calculate seller-specific earnings
-    const ordersWithSellerData = orders.map(order => {
-      const sellerInfo = order.sellers.find(
-        s => s.sellerId.toString() === req.user.id
-      );
-
-      return {
-        ...order.toObject(),
-        sellerSubtotal: sellerInfo?.subtotal || 0,
-        sellerCommission: sellerInfo?.commission || 0,
-        sellerEarnings: sellerInfo?.sellerEarnings || 0
-      };
-    });
-
     res.status(200).json({
       success: true,
-      orders: ordersWithSellerData,
+      orders,
       pagination: {
         page: pageNum,
         limit: limitNum,

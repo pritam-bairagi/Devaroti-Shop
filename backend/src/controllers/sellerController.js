@@ -4,147 +4,124 @@ const Order = require('../models/Order');
 const Sale = require('../models/Sale');
 const Purchase = require('../models/Purchase');
 const Transaction = require('../models/Transaction');
+const { validationResult } = require('express-validator');
 
-// @desc    Get seller dashboard stats
-// @route   GET /api/seller/stats
+// @desc    Create seller product
+// @route   POST /api/seller/products
 // @access  Private/Seller
-exports.getSellerStats = async (req, res) => {
+exports.createSellerProduct = async (req, res) => {
   try {
-    const sellerId = req.user.id;
-    const { startDate, endDate } = req.query;
+    console.log('📦 Seller create product request:', req.body);
+    
+    const { 
+      name, 
+      description, 
+      sellingPrice, 
+      purchasePrice, 
+      unit, 
+      category, 
+      image, 
+      stock, 
+      sku, 
+      brand 
+    } = req.body;
 
-    // Date range
-    const start = startDate ? new Date(startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
-    const end = endDate ? new Date(endDate) : new Date();
+    // Validate required fields
+    if (!name) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Product name is required' 
+      });
+    }
 
-    // Parallel queries
-    const [
-      totalProducts,
-      totalOrders,
-      totalSales,
-      totalEarnings,
-      recentOrders,
-      lowStockProducts,
-      pendingOrders,
-      salesChart
-    ] = await Promise.all([
-      // Total products
-      Product.countDocuments({ user: sellerId, liveStatus: { $ne: 'archived' } }),
-      
-      // Total orders (containing seller's products)
-      Order.countDocuments({ 
-        'sellers.sellerId': sellerId,
-        createdAt: { $gte: start, $lte: end }
-      }),
-      
-      // Total sales amount
-      Order.aggregate([
-        { $match: { 
-            'sellers.sellerId': sellerId,
-            status: 'delivered',
-            createdAt: { $gte: start, $lte: end }
-          }},
-        { $unwind: '$sellers' },
-        { $match: { 'sellers.sellerId': sellerId } },
-        { $group: { _id: null, total: { $sum: '$sellers.subtotal' } } }
-      ]),
-      
-      // Total earnings (after commission)
-      Order.aggregate([
-        { $match: { 
-            'sellers.sellerId': sellerId,
-            status: 'delivered',
-            createdAt: { $gte: start, $lte: end }
-          }},
-        { $unwind: '$sellers' },
-        { $match: { 'sellers.sellerId': sellerId } },
-        { $group: { _id: null, total: { $sum: '$sellers.sellerEarnings' } } }
-      ]),
-      
-      // Recent orders
-      Order.find({ 'sellers.sellerId': sellerId })
-        .populate('user', 'name email')
-        .sort({ createdAt: -1 })
-        .limit(10),
-      
-      // Low stock products
-      Product.find({
-        user: sellerId,
-        $expr: { $lte: ['$stock', '$lowStockThreshold'] },
-        liveStatus: { $ne: 'archived' }
-      }).limit(20),
-      
-      // Pending orders count
-      Order.countDocuments({ 
-        'sellers.sellerId': sellerId,
-        status: 'pending'
-      }),
-      
-      // Daily sales for chart
-      Order.aggregate([
-        { $match: { 
-            'sellers.sellerId': sellerId,
-            status: 'delivered',
-            createdAt: { $gte: start, $lte: end }
-          }},
-        { $unwind: '$sellers' },
-        { $match: { 'sellers.sellerId': sellerId } },
-        { $group: {
-            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-            sales: { $sum: '$sellers.sellerEarnings' },
-            orders: { $sum: 1 }
-          }},
-        { $sort: { _id: 1 } }
-      ])
-    ]);
+    if (!description) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Description is required' 
+      });
+    }
 
-    // Calculate totals
-    const totalSalesAmount = totalSales.length > 0 ? totalSales[0].total : 0;
-    const totalEarningsAmount = totalEarnings.length > 0 ? totalEarnings[0].total : 0;
+    if (!sellingPrice) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Selling price is required' 
+      });
+    }
 
-    // Get top products
-    const topProducts = await Order.aggregate([
-      { $match: { 'sellers.sellerId': sellerId, status: 'delivered' } },
-      { $unwind: '$items' },
-      { $match: { 'items.seller': sellerId } },
-      { $group: {
-          _id: '$items.product',
-          totalSold: { $sum: '$items.quantity' },
-          totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
-        }},
-      { $sort: { totalSold: -1 } },
-      { $limit: 10 },
-      { $lookup: {
-          from: 'products',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'product'
-        }},
-      { $unwind: '$product' }
-    ]);
+    if (!purchasePrice) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Purchase price is required' 
+      });
+    }
 
-    res.status(200).json({
-      success: true,
-      stats: {
-        overview: {
-          totalProducts,
-          totalOrders,
-          totalSales: totalSalesAmount,
-          totalEarnings: totalEarningsAmount,
-          pendingOrders,
-          lowStockCount: lowStockProducts.length
-        },
-        recentOrders,
-        lowStockProducts,
-        topProducts,
-        salesChart
+    if (!category) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Category is required' 
+      });
+    }
+
+    if (!image) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Product image is required' 
+      });
+    }
+
+    // Check SKU uniqueness
+    if (sku && sku.trim() !== '') {
+      const existing = await Product.findOne({ sku });
+      if (existing) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'SKU already exists' 
+        });
       }
+    }
+
+    const productData = {
+      name: String(name).trim(),
+      description: String(description).trim(),
+      sellingPrice: Number(sellingPrice),
+      purchasePrice: Number(purchasePrice),
+      price: Number(sellingPrice),
+      unit: unit || 'পিস',
+      category: String(category).trim(),
+      brand: brand ? String(brand).trim() : undefined,
+      image: String(image).trim(),
+      stock: Number(stock) || 0,
+      user: req.user.id,
+      liveStatus: 'live',
+      images: [String(image).trim()]
+    };
+
+    if (sku && sku.trim() !== "") {
+      productData.sku = String(sku).trim();
+    }
+
+    console.log('Creating seller product with data:', productData);
+    const product = await Product.create(productData);
+
+    console.log('✅ Seller product created successfully:', product._id);
+
+    res.status(201).json({
+      success: true,
+      message: 'Product created successfully',
+      product
     });
   } catch (error) {
-    console.error('Seller stats error:', error);
+    console.error('❌ Create seller product error:', error);
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(val => val.message);
+      return res.status(400).json({ 
+        success: false, 
+        message: messages.join(', ') 
+      });
+    }
     res.status(500).json({ 
       success: false, 
-      message: 'Failed to fetch seller stats' 
+      message: error.message || 'Failed to create product' 
     });
   }
 };
@@ -185,66 +162,6 @@ exports.getSellerProducts = async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch products' 
-    });
-  }
-};
-
-// @desc    Create seller product
-// @route   POST /api/seller/products
-// @access  Private/Seller
-exports.createSellerProduct = async (req, res) => {
-  try {
-    const { 
-      name, description, sellingPrice, purchasePrice, 
-      unit, category, image, stock, sku, brand 
-    } = req.body;
-
-    // Check SKU uniqueness
-    if (sku) {
-      const existing = await Product.findOne({ sku });
-      if (existing) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'SKU already exists' 
-        });
-      }
-    }
-
-    const productData = {
-      name,
-      description,
-      sellingPrice: Number(sellingPrice),
-      purchasePrice: Number(purchasePrice),
-      price: Number(sellingPrice),
-      unit: unit || 'পিস',
-      category,
-      brand,
-      image,
-      stock: Number(stock) || 0,
-      user: req.user.id,
-      liveStatus: 'live' // Default to live so it's visible immediately
-    };
-
-    if (sku && sku.trim() !== "") {
-      productData.sku = sku;
-    }
-
-    const product = await Product.create(productData);
-
-    res.status(201).json({
-      success: true,
-      message: 'Product created successfully',
-      product
-    });
-  } catch (error) {
-    console.error('Create seller product error:', error);
-    if (error.name === 'ValidationError') {
-        const messages = Object.values(error.errors).map(val => val.message);
-        return res.status(400).json({ success: false, message: messages.join(', ') });
-    }
-    res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Failed to create product' 
     });
   }
 };

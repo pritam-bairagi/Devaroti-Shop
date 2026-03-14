@@ -22,7 +22,7 @@ const generateRefreshToken = (id) => {
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
-exports.register = async (req, res) => {
+const register = async (req, res) => {
   try {
     // Validation
     const errors = validationResult(req);
@@ -75,7 +75,7 @@ exports.register = async (req, res) => {
         html: emailTemplates.verification(otp, user.name)
       });
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         message: 'Registration successful. Please verify your email with the OTP sent.',
         userId: user._id,
@@ -85,7 +85,7 @@ exports.register = async (req, res) => {
       console.error('Email sending error:', emailError);
       
       // If email fails, still create user but mark as not verified
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         message: 'Registration successful but verification email failed. Please request a new OTP.',
         userId: user._id,
@@ -95,7 +95,7 @@ exports.register = async (req, res) => {
     }
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Registration failed. Please try again.' 
     });
@@ -105,7 +105,7 @@ exports.register = async (req, res) => {
 // @desc    Verify OTP
 // @route   POST /api/auth/verify
 // @access  Public
-exports.verifyOTP = async (req, res) => {
+const verifyOTP = async (req, res) => {
   try {
     const { userId, otp } = req.body;
 
@@ -170,7 +170,7 @@ exports.verifyOTP = async (req, res) => {
       .populate('cart.product')
       .populate('favorites');
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Email verified successfully',
       token,
@@ -179,7 +179,7 @@ exports.verifyOTP = async (req, res) => {
     });
   } catch (error) {
     console.error('Verification error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Verification failed. Please try again.' 
     });
@@ -189,7 +189,7 @@ exports.verifyOTP = async (req, res) => {
 // @desc    Resend OTP
 // @route   POST /api/auth/resend-otp
 // @access  Public
-exports.resendOTP = async (req, res) => {
+const resendOTP = async (req, res) => {
   try {
     const { userId, email } = req.body;
 
@@ -225,13 +225,13 @@ exports.resendOTP = async (req, res) => {
       html: emailTemplates.verification(otp, user.name)
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'New OTP sent successfully'
     });
   } catch (error) {
     console.error('Resend OTP error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to resend OTP' 
     });
@@ -241,7 +241,7 @@ exports.resendOTP = async (req, res) => {
 // @desc    Login user
 // @route   POST /api/auth/login
 // @access  Public
-exports.login = async (req, res) => {
+const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -310,7 +310,7 @@ exports.login = async (req, res) => {
       })
       .populate('favorites');
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Logged in successfully',
       token,
@@ -319,7 +319,7 @@ exports.login = async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Login failed. Please try again.' 
     });
@@ -329,11 +329,11 @@ exports.login = async (req, res) => {
 // @desc    Refresh token
 // @route   POST /api/auth/refresh-token
 // @access  Public
-exports.refreshToken = async (req, res) => {
+const refreshToken = async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const { refreshToken: token } = req.body;
 
-    if (!refreshToken) {
+    if (!token) {
       return res.status(401).json({ 
         success: false, 
         message: 'Refresh token required' 
@@ -341,7 +341,7 @@ exports.refreshToken = async (req, res) => {
     }
 
     try {
-      const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET + 'refresh');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET + 'refresh');
       
       const user = await User.findById(decoded.id).select('-password');
 
@@ -354,7 +354,7 @@ exports.refreshToken = async (req, res) => {
 
       const newToken = generateToken(user._id);
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         token: newToken
       });
@@ -366,7 +366,7 @@ exports.refreshToken = async (req, res) => {
     }
   } catch (error) {
     console.error('Refresh token error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Token refresh failed' 
     });
@@ -376,7 +376,7 @@ exports.refreshToken = async (req, res) => {
 // @desc    Get current user
 // @route   GET /api/auth/me
 // @access  Private
-exports.getMe = async (req, res) => {
+const getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
       .select('-password -otp -otpExpire -resetPasswordToken -resetPasswordExpires')
@@ -396,13 +396,13 @@ exports.getMe = async (req, res) => {
       });
     }
 
-    res.status(200).json({ 
+    return res.status(200).json({ 
       success: true, 
       user 
     });
   } catch (error) {
     console.error('Get me error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch user data' 
     });
@@ -412,7 +412,7 @@ exports.getMe = async (req, res) => {
 // @desc    Forgot Password
 // @route   POST /api/auth/forgot-password
 // @access  Public
-exports.forgotPassword = async (req, res) => {
+const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -440,7 +440,7 @@ exports.forgotPassword = async (req, res) => {
         html: emailTemplates.resetPassword(resetUrl, user.name)
       });
 
-      res.status(200).json({ 
+      return res.status(200).json({ 
         success: true, 
         message: 'Password reset link sent to email' 
       });
@@ -459,7 +459,7 @@ exports.forgotPassword = async (req, res) => {
     }
   } catch (error) {
     console.error('Forgot password error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Password reset request failed' 
     });
@@ -469,7 +469,7 @@ exports.forgotPassword = async (req, res) => {
 // @desc    Reset Password
 // @route   PUT /api/auth/reset-password/:token
 // @access  Public
-exports.resetPassword = async (req, res) => {
+const resetPassword = async (req, res) => {
   try {
     // Get hashed token
     const resetPasswordToken = crypto
@@ -498,14 +498,14 @@ exports.resetPassword = async (req, res) => {
     // Generate new token for auto-login
     const token = generateToken(user._id);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Password reset successful',
       token
     });
   } catch (error) {
     console.error('Reset password error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Password reset failed' 
     });
@@ -515,7 +515,7 @@ exports.resetPassword = async (req, res) => {
 // @desc    Change Password
 // @route   PUT /api/auth/change-password
 // @access  Private
-exports.changePassword = async (req, res) => {
+const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
 
@@ -556,13 +556,13 @@ exports.changePassword = async (req, res) => {
     user.password = newPassword;
     await user.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Password changed successfully'
     });
   } catch (error) {
     console.error('Change password error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to change password' 
     });
@@ -572,9 +572,9 @@ exports.changePassword = async (req, res) => {
 // @desc    Logout (client-side only, but we provide endpoint for completeness)
 // @route   POST /api/auth/logout
 // @access  Private
-exports.logout = async (req, res) => {
+const logout = async (req, res) => {
   // With JWT, logout is handled client-side by removing token
-  res.status(200).json({ 
+  return res.status(200).json({ 
     success: true, 
     message: 'Logged out successfully' 
   });
@@ -583,7 +583,7 @@ exports.logout = async (req, res) => {
 // @desc    Check if authenticated
 // @route   GET /api/auth/check
 // @access  Private
-exports.checkAuth = async (req, res) => {
+const checkAuth = async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
       .select('-password -otp -otpExpire -resetPasswordToken -resetPasswordExpires');
@@ -595,7 +595,7 @@ exports.checkAuth = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       user: {
         _id: user._id,
@@ -608,9 +608,24 @@ exports.checkAuth = async (req, res) => {
     });
   } catch (error) {
     console.error('Check auth error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Authentication check failed' 
     });
   }
+};
+
+// Export all functions as an object
+module.exports = {
+  register,
+  verifyOTP,
+  resendOTP,
+  login,
+  refreshToken,
+  getMe,
+  forgotPassword,
+  resetPassword,
+  changePassword,
+  logout,
+  checkAuth
 };

@@ -121,20 +121,53 @@ const SellerPanel = () => {
         } catch (error) { }
     };
 
-    const handleProductSubmit = async (e) => {
-        e.preventDefault();
-        try {
-            if (editingItem) {
-                await sellerAPI.updateProduct(editingItem._id, productForm);
-                toast.success("Product updated");
-            } else {
-                await sellerAPI.createProduct(productForm);
-                toast.success("Product created");
-            }
-            setIsProductModalOpen(false);
-            fetchAllData();
-        } catch (error) { }
+// Update the handleProductSubmit function in SellerPanel.jsx
+
+const handleProductSubmit = async (e) => {
+  e.preventDefault();
+  
+  // Validate required fields
+  if (!productForm.name || !productForm.sellingPrice || !productForm.purchasePrice || 
+      !productForm.category || !productForm.image) {
+    toast.error('Please fill in all required fields');
+    return;
+  }
+
+  try {
+    const data = { 
+      ...productForm, 
+      price: productForm.sellingPrice,
+      sellingPrice: Number(productForm.sellingPrice),
+      purchasePrice: Number(productForm.purchasePrice),
+      stock: Number(productForm.stock) || 0
     };
+    
+    console.log('Submitting seller product:', data);
+    
+    if (editingItem) {
+      const response = await sellerAPI.updateProduct(editingItem._id, data);
+      if (response.data.success) {
+        toast.success('Product updated successfully');
+      }
+    } else {
+      const response = await sellerAPI.createProduct(data);
+      if (response.data.success) {
+        toast.success('Product created successfully');
+      }
+    }
+
+    setIsProductModalOpen(false);
+    setEditingItem(null);
+    setProductForm({
+      name: "", sellingPrice: "", purchasePrice: "", description: "", 
+      category: "General", image: "", stock: 0, unit: "পিস", sku: ""
+    });
+    fetchAllData();
+  } catch (error) {
+    console.error('Product operation error:', error);
+    toast.error(error.response?.data?.message || 'Operation failed');
+  }
+};
 
     const handleDeleteProduct = async (productId) => {
         if (!window.confirm("Are you sure?")) return;

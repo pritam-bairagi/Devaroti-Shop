@@ -185,9 +185,12 @@ exports.getProductById = async (req, res) => {
 // @access  Private (Admin/Seller)
 exports.createProduct = async (req, res) => {
   try {
+    console.log('📦 Create product request received:', req.body);
+    
     // Validation
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.log('Validation errors:', errors.array());
       return res.status(400).json({ 
         success: false, 
         errors: errors.array() 
@@ -206,15 +209,57 @@ exports.createProduct = async (req, res) => {
       images,
       mrp,
       brand,
-      specifications,
       shortDescription,
       sku,
       barcode,
       tags
     } = req.body;
 
+    // Validate required fields
+    if (!name) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Product name is required' 
+      });
+    }
+
+    if (!description) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Description is required' 
+      });
+    }
+
+    if (!sellingPrice) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Selling price is required' 
+      });
+    }
+
+    if (!purchasePrice) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Purchase price is required' 
+      });
+    }
+
+    if (!category) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Category is required' 
+      });
+    }
+
+    if (!image) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Product image is required' 
+      });
+    }
+
     // Check if SKU is unique if provided
-    if (sku) {
+    if (sku && sku.trim() !== '') {
       const existingProduct = await Product.findOne({ sku });
       if (existingProduct) {
         return res.status(400).json({ 
@@ -225,27 +270,41 @@ exports.createProduct = async (req, res) => {
     }
 
     // Create product
-    const product = await Product.create({
-      name,
-      description,
-      shortDescription,
+    const productData = {
+      name: String(name).trim(),
+      description: String(description).trim(),
       sellingPrice: Number(sellingPrice),
       purchasePrice: Number(purchasePrice),
       price: Number(sellingPrice),
-      mrp: mrp ? Number(mrp) : undefined,
       unit: unit || 'পিস',
-      category,
-      brand,
-      image,
-      images: images || [image],
+      category: String(category).trim(),
       stock: Number(stock) || 0,
-      sku: sku || undefined,
-      barcode,
-      specifications,
-      tags,
+      image: String(image).trim(),
       user: req.user.id,
-      liveStatus: 'live' // Default to live so it's visible immediately
-    });
+      liveStatus: 'live'
+    };
+
+    // Add optional fields if provided
+    if (shortDescription) productData.shortDescription = String(shortDescription).trim();
+    if (mrp) productData.mrp = Number(mrp);
+    if (brand) productData.brand = String(brand).trim();
+    if (images && Array.isArray(images) && images.length > 0) {
+      productData.images = images.map(img => String(img).trim());
+    } else {
+      productData.images = [String(image).trim()];
+    }
+    if (sku && sku.trim() !== '') productData.sku = String(sku).trim();
+    if (barcode) productData.barcode = String(barcode).trim();
+    if (tags) {
+      productData.tags = Array.isArray(tags) 
+        ? tags.map(tag => String(tag).trim()) 
+        : [String(tags).trim()];
+    }
+
+    console.log('Creating product with data:', productData);
+    const product = await Product.create(productData);
+
+    console.log('✅ Product created successfully:', product._id);
 
     res.status(201).json({
       success: true,
@@ -253,11 +312,24 @@ exports.createProduct = async (req, res) => {
       product
     });
   } catch (error) {
-    console.error('Create product error:', error);
+    console.error('❌ Create product error:', error);
+    console.error('Error stack:', error.stack);
+    
     if (error.name === 'ValidationError') {
-        const messages = Object.values(error.errors).map(val => val.message);
-        return res.status(400).json({ success: false, message: messages.join(', ') });
+      const messages = Object.values(error.errors).map(val => val.message);
+      return res.status(400).json({ 
+        success: false, 
+        message: messages.join(', ') 
+      });
     }
+    
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Duplicate key error. Please check SKU or other unique fields.'
+      });
+    }
+    
     res.status(500).json({ 
       success: false, 
       message: error.message || 'Failed to create product' 

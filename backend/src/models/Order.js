@@ -4,7 +4,6 @@ const orderSchema = new mongoose.Schema({
   orderNumber: {
     type: String,
     unique: true,
-    required: true
   },
 
   user: {
@@ -14,39 +13,37 @@ const orderSchema = new mongoose.Schema({
     index: true
   },
 
-  items: [
-    {
-      product: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Product',
-        required: true
-      },
-      quantity: {
-        type: Number,
-        required: true,
-        min: 1
-      },
-      price: {
-        type: Number,
-        required: true
-      },
-      purchasePrice: {
-        type: Number,
-        required: true
-      },
-      name: String,
-      image: String,
-      seller: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-      }
+  items: [{
+    product: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Product',
+      required: true
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 1
+    },
+    price: {
+      type: Number,
+      required: true
+    },
+    purchasePrice: {
+      type: Number,
+      default: 0
+    },
+    name: String,
+    image: String,
+    seller: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
     }
-  ],
+  }],
 
-  // Pricing
   subtotal: {
     type: Number,
-    required: true
+    required: true,
+    default: 0
   },
   discount: {
     type: Number,
@@ -65,7 +62,6 @@ const orderSchema = new mongoose.Schema({
     required: true
   },
 
-  // Address
   shippingAddress: {
     fullName: String,
     addressLine1: String,
@@ -87,19 +83,15 @@ const orderSchema = new mongoose.Schema({
     phoneNumber: String
   },
 
-  // Delivery
   deliveryOption: {
     type: String,
     enum: ['standard', 'express', 'same-day'],
     default: 'standard'
   },
-  deliveryInstructions: {
-    type: String
-  },
+  deliveryInstructions: String,
   estimatedDeliveryDate: Date,
   actualDeliveryDate: Date,
 
-  // Payment
   paymentMethod: {
     type: String,
     enum: ['Cash on Delivery', 'bkash', 'nagad', 'rocket', 'bank', 'card'],
@@ -121,7 +113,6 @@ const orderSchema = new mongoose.Schema({
   },
   paidAt: Date,
 
-  // Order status
   status: {
     type: String,
     enum: [
@@ -141,7 +132,6 @@ const orderSchema = new mongoose.Schema({
     }
   }],
 
-  // Tracking
   trackingNumber: String,
   courier: String,
   courierDetails: {
@@ -149,18 +139,15 @@ const orderSchema = new mongoose.Schema({
     of: String
   },
 
-  // Notes
   orderNotes: String,
   adminNotes: String,
 
-  // Cancellation/Return
   cancellationReason: String,
   cancelledAt: Date,
   returnedAt: Date,
   refundAmount: Number,
   refundedAt: Date,
 
-  // Commission for platform
   platformCommission: {
     type: Number,
     default: 0
@@ -170,7 +157,6 @@ const orderSchema = new mongoose.Schema({
     default: 0
   },
 
-  // Seller tracking (for multi-vendor)
   sellers: [{
     sellerId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -187,7 +173,6 @@ const orderSchema = new mongoose.Schema({
     status: String
   }],
 
-  // Invoice
   invoiceUrl: String,
   invoiceNumber: String
 }, {
@@ -199,27 +184,27 @@ const orderSchema = new mongoose.Schema({
 // Indexes
 orderSchema.index({ user: 1, createdAt: -1 });
 orderSchema.index({ 'items.seller': 1 });
+orderSchema.index({ orderNumber: 1 });
 
 // Generate order number before saving
-orderSchema.pre('save', function (next) {
+orderSchema.pre('save', function(next) {
   if (!this.orderNumber) {
     const date = new Date();
     const year = date.getFullYear().toString().slice(-2);
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const day = date.getDate().toString().padStart(2, '0');
     const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-
     this.orderNumber = `ORD-${year}${month}${day}-${random}`;
   }
-
+  
   // Update isPaid based on paymentStatus
   this.isPaid = this.paymentStatus === 'paid';
-
+  
   next();
 });
 
 // Virtual for order summary
-orderSchema.virtual('summary').get(function () {
+orderSchema.virtual('summary').get(function() {
   return {
     orderNumber: this.orderNumber,
     totalItems: this.items.reduce((acc, item) => acc + item.quantity, 0),

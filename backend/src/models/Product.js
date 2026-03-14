@@ -11,6 +11,7 @@ const productSchema = new mongoose.Schema({
   slug: {
     type: String,
     unique: true,
+    sparse: true,
     lowercase: true
   },
   description: {
@@ -23,7 +24,6 @@ const productSchema = new mongoose.Schema({
     maxlength: [200, 'Short description cannot exceed 200 characters']
   },
   
-  // Pricing
   sellingPrice: {
     type: Number,
     required: [true, 'Selling price is required'],
@@ -34,7 +34,7 @@ const productSchema = new mongoose.Schema({
     required: [true, 'Purchase price is required'],
     min: [0, 'Purchase price cannot be negative']
   },
-  price: { // Alias for backward compatibility
+  price: {
     type: Number,
     required: true
   },
@@ -49,7 +49,6 @@ const productSchema = new mongoose.Schema({
     max: 100
   },
   
-  // Inventory
   unit: {
     type: String,
     default: 'পিস',
@@ -70,39 +69,24 @@ const productSchema = new mongoose.Schema({
     unique: true,
     sparse: true
   },
-  barcode: {
-    type: String
-  },
+  barcode: String,
   
-  // Media
   image: {
     type: String,
     required: [true, 'Product image is required']
   },
-  images: [{
-    type: String
-  }],
-  video: {
-    type: String
-  },
+  images: [String],
+  video: String,
   
-  // Categorization
   category: {
     type: String,
     required: [true, 'Category is required'],
     index: true
   },
-  subcategory: {
-    type: String
-  },
-  brand: {
-    type: String
-  },
-  tags: [{
-    type: String
-  }],
+  subcategory: String,
+  brand: String,
+  tags: [String],
   
-  // Status
   liveStatus: {
     type: String,
     enum: ['live', 'issue', 'not-available', 'draft', 'archived'],
@@ -122,14 +106,11 @@ const productSchema = new mongoose.Schema({
     default: false
   },
   
-  // Specifications
   specifications: {
     type: Map,
     of: String
   },
-  weight: {
-    type: Number
-  },
+  weight: Number,
   dimensions: {
     length: Number,
     width: Number,
@@ -137,7 +118,6 @@ const productSchema = new mongoose.Schema({
     unit: { type: String, default: 'cm' }
   },
   
-  // Seller information
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -145,7 +125,6 @@ const productSchema = new mongoose.Schema({
     index: true
   },
   
-  // Ratings and reviews
   averageRating: {
     type: Number,
     default: 0,
@@ -157,16 +136,10 @@ const productSchema = new mongoose.Schema({
     default: 0
   },
   
-  // SEO
-  metaTitle: {
-    type: String
-  },
-  metaDescription: {
-    type: String
-  },
+  metaTitle: String,
+  metaDescription: String,
   metaKeywords: [String],
   
-  // Sales tracking
   soldCount: {
     type: Number,
     default: 0
@@ -189,26 +162,22 @@ productSchema.index({ soldCount: -1 });
 
 // Create slug from name
 productSchema.pre('save', function(next) {
-  if (this.isModified('name')) {
-    // Support basic Bengali block \u0980-\u09FF plus english
+  if (this.isModified('name') && this.name) {
     let baseSlug = this.name
       .toLowerCase()
-      .replace(/[^\w\u0980-\u09FF\s-]/g, '')
+      .replace(/[^\w\s-]/g, '')
       .replace(/[\s_-]+/g, '-')
       .replace(/^-+|-+$/g, '');
       
-    if (!baseSlug) baseSlug = 'p';
+    if (!baseSlug) baseSlug = 'product';
     
-    // Ensure uniqueness by appending timestamp if it's new
     if (this.isNew || !this.slug) {
-      this.slug = `${baseSlug}-${Math.floor(Math.random() * 10000)}`;
+      this.slug = `${baseSlug}-${Date.now().toString().slice(-6)}`;
     }
   }
   
-  // Set price alias
   this.price = this.sellingPrice;
   
-  // Calculate discount if mrp exists
   if (this.mrp && this.mrp > 0 && this.sellingPrice < this.mrp) {
     this.discount = Math.round(((this.mrp - this.sellingPrice) / this.mrp) * 100);
   }
@@ -216,12 +185,10 @@ productSchema.pre('save', function(next) {
   next();
 });
 
-// Virtual for inStock
 productSchema.virtual('inStock').get(function() {
   return this.stock > 0;
 });
 
-// Virtual for profit margin
 productSchema.virtual('profitMargin').get(function() {
   if (this.purchasePrice > 0) {
     return ((this.sellingPrice - this.purchasePrice) / this.purchasePrice) * 100;
@@ -229,7 +196,6 @@ productSchema.virtual('profitMargin').get(function() {
   return 0;
 });
 
-// Virtual for reviews
 productSchema.virtual('reviews', {
   ref: 'Review',
   localField: '_id',

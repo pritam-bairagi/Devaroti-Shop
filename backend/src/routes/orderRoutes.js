@@ -12,13 +12,12 @@ const {
 } = require('../controllers/orderController');
 const { protect, admin, seller, adminOrSeller } = require('../middleware/authMiddleware');
 
-// Validation
+// Validation rules
 const orderValidation = [
   body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
   body('shippingAddress').notEmpty().withMessage('Shipping address is required'),
   body('paymentMethod').notEmpty().withMessage('Payment method is required'),
-  body('totalPrice').isNumeric().withMessage('Valid total price is required'),
-  body('orderNumber').notEmpty().withMessage('Order number is required')
+  body('totalPrice').isNumeric().withMessage('Valid total price is required')
 ];
 
 // Public route for tracking
