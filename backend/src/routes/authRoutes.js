@@ -1,19 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const {
-  register,
-  verifyOTP,
-  resendOTP,
-  login,
-  refreshToken,
-  getMe,
-  forgotPassword,
-  resetPassword,
-  changePassword,
-  logout,
-  checkAuth
-} = require('../controllers/authController');
+const authController = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 
 // Validation rules
@@ -36,16 +24,16 @@ const verifyValidation = [
 ];
 
 // Routes
-router.post('/register', registerValidation, register);
-router.post('/verify', verifyValidation, verifyOTP);
-router.post('/resend-otp', resendOTP);
-router.post('/login', loginValidation, login);
-router.post('/refresh-token', refreshToken);
-router.get('/me', protect, getMe);
-router.post('/forgot-password', forgotPassword);
-router.put('/reset-password/:token', resetPassword);
-router.put('/change-password', protect, changePassword);
-router.post('/logout', protect, logout);
-router.get('/check', protect, checkAuth);
+router.post('/register', registerValidation, authController.register);
+router.post('/verify', verifyValidation, authController.verifyOTP);
+router.post('/resend-otp', authController.resendOTP);
+router.post('/login', loginValidation, authController.login);
+router.post('/refresh-token', authController.refreshToken);
+router.get('/me', protect, authController.getMe);
+router.post('/forgot-password', authController.forgotPassword);
+router.put('/reset-password/:token', authController.resetPassword);
+router.put('/change-password', protect, authController.changePassword);
+router.post('/logout', protect, authController.logout);
+router.get('/check', protect, authController.checkAuth);
 
 module.exports = router;

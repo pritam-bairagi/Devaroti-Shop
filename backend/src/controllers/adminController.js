@@ -9,12 +9,13 @@ const { getDashboardStats } = require('../utils/analytics');
 const sendEmail = require('../utils/sendEmail');
 const emailTemplates = require('../utils/emailTemplates');
 
-
 // @desc    Get admin dashboard stats
 // @route   GET /api/admin/stats
 // @access  Private/Admin
-exports.getStats = async (req, res) => {
+const getStats = async (req, res) => {
   try {
+    console.log('📊 Fetching admin stats...');
+    
     const { startDate, endDate } = req.query;
     
     // Date range
@@ -168,7 +169,6 @@ exports.getStats = async (req, res) => {
       { $sort: { _id: 1 } }
     ]);
 
-
     const totalCost = totalPurchaseCost.length > 0 ? totalPurchaseCost[0].total : 0;
     const profit = totalSalesAmount - totalCost;
 
@@ -180,10 +180,9 @@ exports.getStats = async (req, res) => {
       liveStatus: { $ne: 'archived' }
     }).limit(10);
 
-
     const totalStockValue = stockStats.length > 0 ? stockStats[0].total : 0;
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       stats: {
         totalUsers,
@@ -220,8 +219,8 @@ exports.getStats = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Admin stats error:', error);
-    res.status(500).json({ 
+    console.error('❌ Admin stats error:', error);
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch dashboard stats' 
     });
@@ -231,7 +230,7 @@ exports.getStats = async (req, res) => {
 // @desc    Get all users (admin)
 // @route   GET /api/admin/users
 // @access  Private/Admin
-exports.getAllUsers = async (req, res) => {
+const getAllUsers = async (req, res) => {
   try {
     const { 
       page = 1, 
@@ -274,7 +273,7 @@ exports.getAllUsers = async (req, res) => {
 
     const total = await User.countDocuments(query);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       users,
       pagination: {
@@ -285,8 +284,8 @@ exports.getAllUsers = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get all users error:', error);
-    res.status(500).json({ 
+    console.error('❌ Get all users error:', error);
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch users' 
     });
@@ -296,7 +295,7 @@ exports.getAllUsers = async (req, res) => {
 // @desc    Update user (admin)
 // @route   PUT /api/admin/users/:id
 // @access  Private/Admin
-exports.updateUser = async (req, res) => {
+const updateUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
 
@@ -324,14 +323,14 @@ exports.updateUser = async (req, res) => {
 
     const updatedUser = await User.findById(user._id).select('-password -otp -otpExpire -resetPasswordToken -resetPasswordExpires');
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'User updated successfully',
       user: updatedUser
     });
   } catch (error) {
-    console.error('Update user error:', error);
-    res.status(500).json({ 
+    console.error('❌ Update user error:', error);
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to update user' 
     });
@@ -341,7 +340,7 @@ exports.updateUser = async (req, res) => {
 // @desc    Delete user (admin)
 // @route   DELETE /api/admin/users/:id
 // @access  Private/Admin
-exports.deleteUser = async (req, res) => {
+const deleteUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
 
@@ -365,13 +364,13 @@ exports.deleteUser = async (req, res) => {
     user.deactivatedAt = new Date();
     await user.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'User deactivated successfully'
     });
   } catch (error) {
-    console.error('Delete user error:', error);
-    res.status(500).json({ 
+    console.error('❌ Delete user error:', error);
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to delete user' 
     });
@@ -381,7 +380,7 @@ exports.deleteUser = async (req, res) => {
 // @desc    Get all orders (admin)
 // @route   GET /api/admin/orders
 // @access  Private/Admin
-exports.getAllOrders = async (req, res) => {
+const getAllOrders = async (req, res) => {
   try {
     const { 
       page = 1, 
@@ -436,7 +435,7 @@ exports.getAllOrders = async (req, res) => {
         }}
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       orders,
       stats,
@@ -448,8 +447,8 @@ exports.getAllOrders = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get all orders error:', error);
-    res.status(500).json({ 
+    console.error('❌ Get all orders error:', error);
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch orders' 
     });
@@ -459,7 +458,7 @@ exports.getAllOrders = async (req, res) => {
 // @desc    Update order (admin)
 // @route   PUT /api/admin/orders/:id
 // @access  Private/Admin
-exports.updateOrder = async (req, res) => {
+const updateOrder = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
 
@@ -495,14 +494,14 @@ exports.updateOrder = async (req, res) => {
 
     await order.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Order updated successfully',
       order
     });
   } catch (error) {
-    console.error('Update order error:', error);
-    res.status(500).json({ 
+    console.error('❌ Update order error:', error);
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to update order' 
     });
@@ -512,7 +511,7 @@ exports.updateOrder = async (req, res) => {
 // @desc    Get all products (admin)
 // @route   GET /api/admin/products
 // @access  Private/Admin
-exports.getAllProducts = async (req, res) => {
+const getAllProducts = async (req, res) => {
   try {
     const { 
       page = 1, 
@@ -556,7 +555,7 @@ exports.getAllProducts = async (req, res) => {
 
     const total = await Product.countDocuments(query);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       products,
       pagination: {
@@ -567,8 +566,8 @@ exports.getAllProducts = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get all products error:', error);
-    res.status(500).json({ 
+    console.error('❌ Get all products error:', error);
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch products' 
     });
@@ -578,7 +577,7 @@ exports.getAllProducts = async (req, res) => {
 // @desc    Approve seller
 // @route   PUT /api/admin/approve-seller/:id
 // @access  Private/Admin
-exports.approveSeller = async (req, res) => {
+const approveSeller = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
 
@@ -610,13 +609,13 @@ exports.approveSeller = async (req, res) => {
       console.error('Approval email error:', emailError);
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Seller approved successfully'
     });
   } catch (error) {
-    console.error('Approve seller error:', error);
-    res.status(500).json({ 
+    console.error('❌ Approve seller error:', error);
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to approve seller' 
     });
@@ -626,7 +625,7 @@ exports.approveSeller = async (req, res) => {
 // @desc    Get platform analytics
 // @route   GET /api/admin/analytics
 // @access  Private/Admin
-exports.getAnalytics = async (req, res) => {
+const getAnalytics = async (req, res) => {
   try {
     const { period = 'month' } = req.query;
 
@@ -703,7 +702,7 @@ exports.getAnalytics = async (req, res) => {
           _id: '$items.seller',
           totalSales: { $sum: { $multiply: ['$items.price', '$items.quantity'] } },
           orderCount: { $sum: 1 },
-          commission: { $sum: { $multiply: ['$items.price', '$items.quantity', 0.02] } } // 2% commission
+          commission: { $sum: { $multiply: ['$items.price', '$items.quantity', 0.02] } }
         }},
       { $sort: { totalSales: -1 } },
       { $limit: 10 },
@@ -716,7 +715,7 @@ exports.getAnalytics = async (req, res) => {
       { $unwind: '$seller' }
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       analytics: {
         salesOverTime,
@@ -726,8 +725,8 @@ exports.getAnalytics = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get analytics error:', error);
-    res.status(500).json({ 
+    console.error('❌ Get analytics error:', error);
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch analytics' 
     });
@@ -737,7 +736,7 @@ exports.getAnalytics = async (req, res) => {
 // @desc    Get all transactions (admin)
 // @route   GET /api/admin/transactions
 // @access  Private/Admin
-exports.getTransactions = async (req, res) => {
+const getTransactions = async (req, res) => {
   try {
     const { 
       page = 1, 
@@ -783,7 +782,7 @@ exports.getTransactions = async (req, res) => {
         }}
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       transactions,
       summary,
@@ -795,8 +794,8 @@ exports.getTransactions = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get transactions error:', error);
-    res.status(500).json({ 
+    console.error('❌ Get transactions error:', error);
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch transactions' 
     });
@@ -806,31 +805,39 @@ exports.getTransactions = async (req, res) => {
 // @desc    Create transaction (admin)
 // @route   POST /api/admin/transactions
 // @access  Private/Admin
-exports.createTransaction = async (req, res) => {
+const createTransaction = async (req, res) => {
   try {
     const { type, amount, description, category, paymentMethod } = req.body;
 
+    if (!type || !amount || !description) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Type, amount and description are required' 
+      });
+    }
+
     const transaction = await Transaction.create({
       type,
-      amount,
+      amount: Number(amount),
       description,
-      category,
-      paymentMethod,
-      user: req.user.id
+      category: category || 'others',
+      paymentMethod: paymentMethod || 'Cash',
+      user: req.user.id,
+      date: new Date()
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: 'Transaction created successfully',
       transaction
     });
   } catch (error) {
-    console.error('Create transaction error:', error);
+    console.error('❌ Create transaction error:', error);
     if (error.name === 'ValidationError') {
         const messages = Object.values(error.errors).map(val => val.message);
         return res.status(400).json({ success: false, message: messages.join(', ') });
     }
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: error.message || 'Failed to create transaction' 
     });
@@ -840,20 +847,18 @@ exports.createTransaction = async (req, res) => {
 // @desc    Get system logs (admin)
 // @route   GET /api/admin/logs
 // @access  Private/Admin
-exports.getSystemLogs = async (req, res) => {
+const getSystemLogs = async (req, res) => {
   try {
-    const { page = 1, limit = 50, level } = req.query;
-
     // This would typically come from a logging system
     // For now, return a placeholder
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       logs: [],
       message: 'Logs feature coming soon'
     });
   } catch (error) {
-    console.error('Get system logs error:', error);
-    res.status(500).json({
+    console.error('❌ Get system logs error:', error);
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch logs'
     });
@@ -863,88 +868,123 @@ exports.getSystemLogs = async (req, res) => {
 // @desc    Get sales (admin)
 // @route   GET /api/admin/sales
 // @access  Private/Admin
-exports.getSales = async (req, res) => {
+const getSales = async (req, res) => {
   try {
-    const sales = await Sale.find().populate('product', 'name').sort({ createdAt: -1 });
-    res.status(200).json({ success: true, sales });
+    const sales = await Sale.find()
+      .populate('product', 'name')
+      .populate('user', 'name')
+      .sort({ createdAt: -1 });
+      
+    return res.status(200).json({ success: true, sales });
   } catch (error) {
-    console.error('Get sales error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch sales' });
+    console.error('❌ Get sales error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch sales' });
   }
 };
 
 // @desc    Create sale (admin)
 // @route   POST /api/admin/sales
 // @access  Private/Admin
-exports.createSale = async (req, res) => {
+const createSale = async (req, res) => {
   try {
     const { product, quantity, totalAmount, paymentMethod, description } = req.body;
+    
     const productInfo = await Product.findById(product);
-    if (!productInfo) return res.status(404).json({ success: false, message: 'Product not found' });
+    if (!productInfo) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
 
     const purchasePrice = productInfo.purchasePrice * quantity;
     const profit = totalAmount - purchasePrice;
 
     const sale = await Sale.create({
       product,
-      quantity,
+      quantity: Number(quantity),
       unitPrice: totalAmount / quantity,
-      totalAmount,
+      totalAmount: Number(totalAmount),
       purchasePrice,
       profit,
-      paymentMethod,
+      paymentMethod: paymentMethod || 'Cash',
       notes: description,
-      user: req.user.id
+      user: req.user.id,
+      saleDate: new Date()
     });
     
-    productInfo.stock -= quantity;
+    productInfo.stock -= Number(quantity);
     await productInfo.save();
 
-    res.status(201).json({ success: true, sale });
+    return res.status(201).json({ success: true, sale });
   } catch (error) {
-    console.error('Create sale error:', error);
-    res.status(500).json({ success: false, message: 'Failed to create sale' });
+    console.error('❌ Create sale error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to create sale' });
   }
 };
 
 // @desc    Get purchases (admin)
 // @route   GET /api/admin/purchases
 // @access  Private/Admin
-exports.getPurchases = async (req, res) => {
+const getPurchases = async (req, res) => {
   try {
-    const purchases = await Purchase.find().populate('product', 'name').sort({ createdAt: -1 });
-    res.status(200).json({ success: true, purchases });
+    const purchases = await Purchase.find()
+      .populate('product', 'name')
+      .populate('user', 'name')
+      .sort({ createdAt: -1 });
+      
+    return res.status(200).json({ success: true, purchases });
   } catch (error) {
-    console.error('Get purchases error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch purchases' });
+    console.error('❌ Get purchases error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch purchases' });
   }
 };
 
 // @desc    Create purchase (admin)
 // @route   POST /api/admin/purchases
 // @access  Private/Admin
-exports.createPurchase = async (req, res) => {
+const createPurchase = async (req, res) => {
   try {
     const { product, quantity, totalAmount, description } = req.body;
+    
     const productInfo = await Product.findById(product);
-    if (!productInfo) return res.status(404).json({ success: false, message: 'Product not found' });
+    if (!productInfo) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
 
     const purchase = await Purchase.create({
       product,
-      quantity,
+      quantity: Number(quantity),
       unitPrice: totalAmount / quantity,
-      totalAmount,
+      totalAmount: Number(totalAmount),
       notes: description,
-      user: req.user.id
+      user: req.user.id,
+      purchaseDate: new Date()
     });
     
     productInfo.stock += Number(quantity);
     await productInfo.save();
 
-    res.status(201).json({ success: true, purchase });
+    return res.status(201).json({ success: true, purchase });
   } catch (error) {
-    console.error('Create purchase error:', error);
-    res.status(500).json({ success: false, message: 'Failed to create purchase' });
+    console.error('❌ Create purchase error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to create purchase' });
   }
 };
-
+
+// Export all functions
+module.exports = {
+  getStats,
+  getAllUsers,
+  updateUser,
+  deleteUser,
+  getAllOrders,
+  updateOrder,
+  getAllProducts,
+  approveSeller,
+  getAnalytics,
+  getTransactions,
+  createTransaction,
+  getSystemLogs,
+  getSales,
+  createSale,
+  getPurchases,
+  createPurchase
+};

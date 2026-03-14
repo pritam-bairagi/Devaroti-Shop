@@ -1,16 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const {
-  createOrder,
-  getMyOrders,
-  getOrderById,
-  cancelOrder,
-  trackOrder,
-  updateOrderStatus,
-  getSellerOrders
-} = require('../controllers/orderController');
-const { protect, admin, seller, adminOrSeller } = require('../middleware/authMiddleware');
+const orderController = require('../controllers/orderController');
+const { protect, seller, adminOrSeller } = require('../middleware/authMiddleware');
 
 // Validation rules
 const orderValidation = [
@@ -21,14 +13,14 @@ const orderValidation = [
 ];
 
 // Public route for tracking
-router.get('/track/:orderNumber', trackOrder);
+router.get('/track/:orderNumber', orderController.trackOrder);
 
 // Protected routes
-router.post('/', protect, orderValidation, createOrder);
-router.get('/my-orders', protect, getMyOrders);
-router.get('/seller', protect, seller, getSellerOrders);
-router.get('/:id', protect, getOrderById);
-router.put('/:id/cancel', protect, cancelOrder);
-router.put('/:id/status', protect, adminOrSeller, updateOrderStatus);
+router.post('/', protect, orderValidation, orderController.createOrder);
+router.get('/my-orders', protect, orderController.getMyOrders);
+router.get('/seller', protect, seller, orderController.getSellerOrders);
+router.get('/:id', protect, orderController.getOrderById);
+router.put('/:id/cancel', protect, orderController.cancelOrder);
+router.put('/:id/status', protect, adminOrSeller, orderController.updateOrderStatus);
 
 module.exports = router;

@@ -1,73 +1,42 @@
 const express = require('express');
 const router = express.Router();
+const sellerController = require('../controllers/sellerController');
 const { protect, seller } = require('../middleware/authMiddleware');
-const {
-  createSellerProduct,
-  getSellerProducts,
-  updateSellerProduct,
-  deleteSellerProduct,
-  getSellerOrders,
-  updateSellerOrder,
-  getSellerEarnings,
-  requestWithdrawal,
-  getSellerProfile,
-  getSellerSales,
-  createSellerSale,
-  getSellerPurchases,
-  createSellerPurchase,
-  getSellerTransactions,
-  createSellerTransaction,
-  getSellerCustomers
-} = require('../controllers/sellerController');
 
-// All routes are protected and require seller role
-router.use(protect);
-router.use(seller);
+// All seller routes are protected and seller-only
+router.use(protect, seller);
 
-// Profile routes
-router.route('/profile')
-  .get(getSellerProfile);
+// Dashboard
+router.get('/stats', sellerController.getSellerStats);
+router.get('/profile', sellerController.getSellerProfile);
+router.get('/earnings', sellerController.getSellerEarnings);
 
-// Product routes
-router.route('/products')
-  .get(getSellerProducts)
-  .post(createSellerProduct);
+// Product management
+router.get('/products', sellerController.getSellerProducts);
+router.post('/products', sellerController.createSellerProduct);
+router.put('/products/:id', sellerController.updateSellerProduct);
+router.delete('/products/:id', sellerController.deleteSellerProduct);
 
-router.route('/products/:id')
-  .put(updateSellerProduct)
-  .delete(deleteSellerProduct);
+// Order management
+router.get('/orders', sellerController.getSellerOrders);
+router.put('/orders/:id', sellerController.updateSellerOrder);
 
-// Order routes
-router.route('/orders')
-  .get(getSellerOrders);
+// Customers
+router.get('/customers', sellerController.getSellerCustomers);
 
-router.route('/orders/:id')
-  .put(updateSellerOrder);
+// Financial
+router.post('/withdraw', sellerController.requestWithdrawal);
 
-// Earnings routes
-router.route('/earnings')
-  .get(getSellerEarnings);
+// Sales management
+router.get('/sales', sellerController.getSellerSales);
+router.post('/sales', sellerController.createSellerSale);
 
-router.route('/withdraw')
-  .post(requestWithdrawal);
+// Purchases management
+router.get('/purchases', sellerController.getSellerPurchases);
+router.post('/purchases', sellerController.createSellerPurchase);
 
-// Sales routes
-router.route('/sales')
-  .get(getSellerSales)
-  .post(createSellerSale);
-
-// Purchases routes
-router.route('/purchases')
-  .get(getSellerPurchases)
-  .post(createSellerPurchase);
-
-// Transactions routes
-router.route('/transactions')
-  .get(getSellerTransactions)
-  .post(createSellerTransaction);
-
-// Customers routes
-router.route('/customers')
-  .get(getSellerCustomers);
+// Transactions management
+router.get('/transactions', sellerController.getSellerTransactions);
+router.post('/transactions', sellerController.createSellerTransaction);
 
 module.exports = router;

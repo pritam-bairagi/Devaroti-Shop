@@ -1,56 +1,39 @@
 const express = require('express');
 const router = express.Router();
-const {
-  getStats,
-  getAllUsers,
-  updateUser,
-  deleteUser,
-  getAllOrders,
-  updateOrder,
-  getAllProducts,
-  approveSeller,
-  getAnalytics,
-  getTransactions,
-  createTransaction,
-  getSystemLogs,
-  getSales,
-  createSale,
-  getPurchases,
-  createPurchase
-} = require('../controllers/adminController');
+const adminController = require('../controllers/adminController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 // All admin routes are protected and admin-only
 router.use(protect, admin);
 
-// Dashboard
-router.get('/stats', getStats);
-router.get('/analytics', getAnalytics);
-router.get('/logs', getSystemLogs);
+// ==================== DASHBOARD ROUTES ====================
+router.get('/stats', adminController.getStats);
+router.get('/analytics', adminController.getAnalytics);
+router.get('/logs', adminController.getSystemLogs);
 
-// User management
-router.get('/users', getAllUsers);
-router.put('/users/:id', updateUser);
-router.delete('/users/:id', deleteUser);
-router.put('/approve-seller/:id', approveSeller);
+// ==================== USER MANAGEMENT ====================
+router.get('/users', adminController.getAllUsers);
+router.put('/users/:id', adminController.updateUser);
+router.delete('/users/:id', adminController.deleteUser);
+router.put('/approve-seller/:id', adminController.approveSeller);
 
-// Order management
-router.get('/orders', getAllOrders);
-router.put('/orders/:id', updateOrder);
+// ==================== ORDER MANAGEMENT ====================
+router.get('/orders', adminController.getAllOrders);
+router.put('/orders/:id', adminController.updateOrder);
 
-// Product management
-router.get('/products', getAllProducts);
+// ==================== PRODUCT MANAGEMENT ====================
+router.get('/products', adminController.getAllProducts);
 
-// Transaction management
-router.get('/transactions', getTransactions);
-router.post('/transactions', createTransaction);
+// ==================== TRANSACTION MANAGEMENT ====================
+router.get('/transactions', adminController.getTransactions);
+router.post('/transactions', adminController.createTransaction);
 
-// Sales management
-router.get('/sales', getSales);
-router.post('/sales', createSale);
+// ==================== SALES MANAGEMENT ====================
+router.get('/sales', adminController.getSales);
+router.post('/sales', adminController.createSale);
 
-// Purchases management
-router.get('/purchases', getPurchases);
-router.post('/purchases', createPurchase);
+// ==================== PURCHASES MANAGEMENT ====================
+router.get('/purchases', adminController.getPurchases);
+router.post('/purchases', adminController.createPurchase);
 
 module.exports = router;

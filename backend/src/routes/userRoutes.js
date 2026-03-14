@@ -1,19 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const {
-  getProfile,
-  updateProfile,
-  addToCart,
-  updateCartItem,
-  removeFromCart,
-  clearCart,
-  toggleFavorite,
-  getFavorites,
-  addAddress,
-  deleteAccount,
-  getUserById
-} = require('../controllers/userController');
+const userController = require('../controllers/userController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 // Cart validation
@@ -31,26 +19,26 @@ const profileValidation = [
 ];
 
 // Routes
-router.get('/profile', protect, getProfile);
-router.put('/profile', protect, profileValidation, updateProfile);
+router.get('/profile', protect, userController.getProfile);
+router.put('/profile', protect, profileValidation, userController.updateProfile);
 
 // Cart routes
-router.post('/cart', protect, cartValidation, addToCart);
-router.put('/cart/:productId', protect, updateCartItem);
-router.delete('/cart/:productId', protect, removeFromCart);
-router.delete('/cart', protect, clearCart);
+router.post('/cart', protect, cartValidation, userController.addToCart);
+router.put('/cart/:productId', protect, userController.updateCartItem);
+router.delete('/cart/:productId', protect, userController.removeFromCart);
+router.delete('/cart', protect, userController.clearCart);
 
 // Favorites routes
-router.get('/favorites', protect, getFavorites);
-router.post('/favorites/:productId', protect, toggleFavorite);
+router.get('/favorites', protect, userController.getFavorites);
+router.post('/favorites/:productId', protect, userController.toggleFavorite);
 
 // Address routes
-router.post('/address', protect, addAddress);
+router.post('/address', protect, userController.addAddress);
 
 // Account management
-router.delete('/account', protect, deleteAccount);
+router.delete('/account', protect, userController.deleteAccount);
 
 // Admin only routes
-router.get('/:id', protect, admin, getUserById);
+router.get('/:id', protect, admin, userController.getUserById);
 
 module.exports = router;

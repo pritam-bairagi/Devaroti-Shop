@@ -1,21 +1,22 @@
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-    User, Trash2, Edit, Shield, Search, ArrowLeft, Plus, X,
-    Package, ShoppingCart, Users, LayoutDashboard, Save, CheckCircle,
-    Banknote, ShoppingBag, Truck, FileText, Download, BarChart3, TrendingUp, TrendingDown,
-    Calendar, ArrowUpRight, ArrowDownRight, Printer, FileSpreadsheet,
-    HomeIcon,
-    StoreIcon,
-    Edit2
+    User, Trash2, Edit, Search, ArrowLeft, Plus, X,
+    Package, ShoppingCart, Users, LayoutDashboard, CheckCircle,
+    Banknote, ShoppingBag, FileText, Download, BarChart3, TrendingUp, TrendingDown,
+    ArrowUpRight, ArrowDownRight, Printer, FileSpreadsheet,
+    StoreIcon, Edit2, RefreshCw, Filter, Calendar, DollarSign,
+    Eye, Check, AlertCircle, Clock, CreditCard, Wallet,
+    PieChart as PieChartIcon, Activity, TrendingUp as TrendingUpIcon
 } from "lucide-react";
 import { useAuth } from "../contexts/useAuth";
-import API, { adminAPI, productAPI } from "../services/api";
+import { adminAPI, productAPI } from "../services/api";
 import toast from "react-hot-toast";
 import { Link } from "react-router-dom";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    LineChart, Line, AreaChart, Area, PieChart, Pie, Cell
+    AreaChart, Area, PieChart, Pie, Cell, LineChart, Line,
+    ComposedChart, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -33,6 +34,17 @@ const AdminDashboard = () => {
     const [purchases, setPurchases] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
+    const [dateRange, setDateRange] = useState("month");
+    const [selectedOrder, setSelectedOrder] = useState(null);
+    const [isOrderDetailModalOpen, setIsOrderDetailModalOpen] = useState(false);
+    const [isEditOrderModalOpen, setIsEditOrderModalOpen] = useState(false);
+    const [orderUpdateForm, setOrderUpdateForm] = useState({
+        status: "",
+        paymentStatus: "",
+        trackingNumber: "",
+        courier: "",
+        adminNotes: ""
+    });
 
     // Form States
     const [editingItem, setEditingItem] = useState(null);
@@ -43,48 +55,135 @@ const AdminDashboard = () => {
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
 
     const [productForm, setProductForm] = useState({
-        name: "", sellingPrice: "", purchasePrice: "", description: "", category: "General", image: "", stock: 0, unit: "পিস", liveStatus: "live"
+        name: "", 
+        sellingPrice: "", 
+        purchasePrice: "", 
+        description: "", 
+        category: "General", 
+        image: "", 
+        stock: 0, 
+        unit: "পিস", 
+        liveStatus: "live",
+        brand: "",
+        sku: ""
     });
+    
     const [transactionForm, setTransactionForm] = useState({
-        type: "Cash In", amount: "", description: ""
+        type: "Cash In", 
+        amount: "", 
+        description: "",
+        category: "sales",
+        paymentMethod: "Cash"
     });
+    
     const [saleForm, setSaleForm] = useState({
-        product: "", quantity: 1, totalAmount: 0, paymentMethod: "Cash", description: ""
+        product: "", 
+        quantity: 1, 
+        totalAmount: 0, 
+        paymentMethod: "Cash", 
+        description: "",
+        customerName: "",
+        customerPhone: ""
     });
+    
     const [purchaseForm, setPurchaseForm] = useState({
-        product: "", quantity: 1, totalAmount: 0, description: ""
+        product: "", 
+        quantity: 1, 
+        totalAmount: 0, 
+        description: "",
+        supplier: ""
     });
 
     const [userForm, setUserForm] = useState({
-        name: "", email: "", password: "", phoneNumber: "", address: "", role: "user"
+        name: "", 
+        email: "", 
+        phoneNumber: "", 
+        address: "", 
+        role: "user",
+        isActive: true,
+        isVerified: true
     });
 
     useEffect(() => {
         fetchAllData();
-    }, [activeTab]);
+    }, [activeTab, dateRange]);
 
     const fetchAllData = async () => {
         setLoading(true);
         try {
-            const [sRes, uRes, pRes, oRes, tRes, slRes, puRes] = await Promise.all([
-                API.get("/admin/stats"),
-                API.get("/admin/users"),
-                API.get("/admin/products"),
-                API.get("/admin/orders"),
-                API.get("/admin/transactions"),
-                API.get("/admin/sales"),
-                API.get("/admin/purchases")
-            ]);
-            setStats(sRes.data.stats || {});
-            setUsers(uRes.data.users || []);
-            setProducts(pRes.data.products || []);
-            setOrders(oRes.data.orders || []);
-            setTransactions(tRes.data.transactions || []);
-            setSales(slRes.data.sales || []);
-            setPurchases(puRes.data.purchases || []);
-
+            console.log('Fetching admin data for tab:', activeTab);
+            
+            const requests = [];
+            
+            // Always fetch stats with date range
+            requests.push(adminAPI.getStats({ period: dateRange }).catch(err => {
+                console.error('Stats error:', err);
+                return { data: { stats: {} } };
+            }));
+            
+            // Fetch based on active tab
+            if (activeTab === 'users' || activeTab === 'overview') {
+                requests.push(adminAPI.getUsers({ limit: 100 }).catch(err => {
+                    console.error('Users error:', err);
+                    return { data: { users: [] } };
+                }));
+            }
+            
+            if (activeTab === 'inventory' || activeTab === 'overview') {
+                requests.push(adminAPI.getProducts({ limit: 100 }).catch(err => {
+                    console.error('Products error:', err);
+                    return { data: { products: [] } };
+                }));
+            }
+            
+            if (activeTab === 'orders' || activeTab === 'overview') {
+                requests.push(adminAPI.getOrders({ limit: 100 }).catch(err => {
+                    console.error('Orders error:', err);
+                    return { data: { orders: [] } };
+                }));
+            }
+            
+            if (activeTab === 'cashbox' || activeTab === 'overview') {
+                requests.push(adminAPI.getTransactions({ limit: 100 }).catch(err => {
+                    console.error('Transactions error:', err);
+                    return { data: { transactions: [] } };
+                }));
+            }
+            
+            if (activeTab === 'sales') {
+                requests.push(adminAPI.getSales().catch(err => {
+                    console.error('Sales error:', err);
+                    return { data: { sales: [] } };
+                }));
+            }
+            
+            if (activeTab === 'purchases') {
+                requests.push(adminAPI.getPurchases().catch(err => {
+                    console.error('Purchases error:', err);
+                    return { data: { purchases: [] } };
+                }));
+            }
+            
+            const results = await Promise.all(requests);
+            
+            // Set stats (first response)
+            if (results[0]?.data?.stats) {
+                setStats(results[0].data.stats);
+            }
+            
+            // Set other data based on responses
+            results.forEach(res => {
+                if (res?.data?.users) setUsers(res.data.users);
+                if (res?.data?.products) setProducts(res.data.products);
+                if (res?.data?.orders) setOrders(res.data.orders);
+                if (res?.data?.transactions) setTransactions(res.data.transactions);
+                if (res?.data?.sales) setSales(res.data.sales);
+                if (res?.data?.purchases) setPurchases(res.data.purchases);
+            });
+            
         } catch (error) {
-            toast.error(error.response?.data?.message || "Failed to fetch data");
+            console.error('Fetch all data error:', error);
+            toast.error("Failed to fetch some data");
         } finally {
             setLoading(false);
         }
@@ -92,443 +191,968 @@ const AdminDashboard = () => {
 
     // --- Export Utilities ---
     const exportToExcel = (data, fileName) => {
-        const worksheet = XLSX.utils.json_to_sheet(data);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
-        XLSX.writeFile(workbook, `${fileName}.xlsx`);
-    };
-
-    const exportToPDF = (headers, data, fileName, title) => {
-        const doc = new jsPDF();
-        doc.text(title, 14, 15);
-        doc.autoTable({
-            head: [headers],
-            body: data,
-            startY: 20,
-        });
-        doc.save(`${fileName}.pdf`);
-    };
-
-    // --- Handlers ---
-    const handleAddTransaction = async (e) => {
-        e.preventDefault();
         try {
-            await API.post("/admin/transactions", transactionForm);
-            toast.success("Transaction added");
-
-            setIsTransactionModalOpen(false);
-            setTransactionForm({ type: "Cash In", amount: "", description: "" });
-            fetchAllData();
+            const worksheet = XLSX.utils.json_to_sheet(data);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+            XLSX.writeFile(workbook, `${fileName}_${new Date().toISOString().slice(0,10)}.xlsx`);
+            toast.success('Exported successfully');
         } catch (error) {
-            toast.error("Failed to add transaction");
+            console.error('Export error:', error);
+            toast.error('Failed to export');
         }
     };
 
+    const exportToPDF = (headers, data, fileName, title) => {
+        try {
+            const doc = new jsPDF();
+            doc.text(title, 14, 15);
+            doc.autoTable({
+                head: [headers],
+                body: data.map(row => Object.values(row)),
+                startY: 20,
+            });
+            doc.save(`${fileName}_${new Date().toISOString().slice(0,10)}.pdf`);
+            toast.success('PDF exported successfully');
+        } catch (error) {
+            console.error('PDF export error:', error);
+            toast.error('Failed to export PDF');
+        }
+    };
+
+    // --- Order Handlers ---
+    const handleViewOrder = (order) => {
+        setSelectedOrder(order);
+        setIsOrderDetailModalOpen(true);
+    };
+
+    const handleEditOrder = (order) => {
+        setSelectedOrder(order);
+        setOrderUpdateForm({
+            status: order.status,
+            paymentStatus: order.paymentStatus,
+            trackingNumber: order.trackingNumber || "",
+            courier: order.courier || "",
+            adminNotes: order.adminNotes || ""
+        });
+        setIsEditOrderModalOpen(true);
+    };
+
+    const handleUpdateOrder = async (e) => {
+        e.preventDefault();
+        try {
+            const response = await adminAPI.updateOrder(selectedOrder._id, orderUpdateForm);
+            if (response.data.success) {
+                toast.success("Order updated successfully");
+                setIsEditOrderModalOpen(false);
+                fetchAllData();
+            }
+        } catch (error) {
+            console.error('Order update error:', error);
+            toast.error(error.response?.data?.message || "Failed to update order");
+        }
+    };
+
+    // --- Transaction Handlers ---
+    const handleAddTransaction = async (e) => {
+        e.preventDefault();
+        try {
+            const response = await adminAPI.createTransaction(transactionForm);
+            if (response.data.success) {
+                toast.success("Transaction added");
+                setIsTransactionModalOpen(false);
+                setTransactionForm({ 
+                    type: "Cash In", 
+                    amount: "", 
+                    description: "",
+                    category: "sales",
+                    paymentMethod: "Cash"
+                });
+                fetchAllData();
+            }
+        } catch (error) {
+            console.error('Transaction error:', error);
+            toast.error(error.response?.data?.message || "Failed to add transaction");
+        }
+    };
+
+    // --- Sale Handlers ---
     const handleAddSale = async (e) => {
         e.preventDefault();
         try {
-            await API.post("/admin/sales", saleForm);
-            toast.success("Sale recorded");
-
-            setIsSaleModalOpen(false);
-            fetchAllData();
+            const response = await adminAPI.createSale(saleForm);
+            if (response.data.success) {
+                toast.success("Sale recorded");
+                setIsSaleModalOpen(false);
+                setSaleForm({ 
+                    product: "", 
+                    quantity: 1, 
+                    totalAmount: 0, 
+                    paymentMethod: "Cash", 
+                    description: "",
+                    customerName: "",
+                    customerPhone: ""
+                });
+                fetchAllData();
+            }
         } catch (error) {
+            console.error('Sale error:', error);
             toast.error(error.response?.data?.message || "Failed to record sale");
         }
     };
 
+    // --- Purchase Handlers ---
     const handleAddPurchase = async (e) => {
         e.preventDefault();
         try {
-            await API.post("/admin/purchases", purchaseForm);
-            toast.success("Purchase recorded");
-
-            setIsPurchaseModalOpen(false);
-            fetchAllData();
+            const response = await adminAPI.createPurchase(purchaseForm);
+            if (response.data.success) {
+                toast.success("Purchase recorded");
+                setIsPurchaseModalOpen(false);
+                setPurchaseForm({ 
+                    product: "", 
+                    quantity: 1, 
+                    totalAmount: 0, 
+                    description: "",
+                    supplier: ""
+                });
+                fetchAllData();
+            }
         } catch (error) {
-            toast.error("Failed to record purchase");
+            console.error('Purchase error:', error);
+            toast.error(error.response?.data?.message || "Failed to record purchase");
         }
     };
 
-    // Update the handleProductSubmit function in AdminDashboard.jsx
+    // --- Product Handlers ---
+    const handleProductSubmit = async (e) => {
+        e.preventDefault();
+        
+        if (!productForm.name || !productForm.sellingPrice || !productForm.purchasePrice || 
+            !productForm.category || !productForm.image) {
+            toast.error('Please fill in all required fields');
+            return;
+        }
 
-const handleProductSubmit = async (e) => {
-  e.preventDefault();
-  
-  // Validate required fields
-  if (!productForm.name || !productForm.sellingPrice || !productForm.purchasePrice || 
-      !productForm.category || !productForm.image) {
-    toast.error('Please fill in all required fields');
-    return;
-  }
-
-  try {
-    const data = { 
-      ...productForm, 
-      price: productForm.sellingPrice,
-      sellingPrice: Number(productForm.sellingPrice),
-      purchasePrice: Number(productForm.purchasePrice),
-      stock: Number(productForm.stock) || 0
+        try {
+            const data = { 
+                ...productForm, 
+                price: productForm.sellingPrice,
+                sellingPrice: Number(productForm.sellingPrice),
+                purchasePrice: Number(productForm.purchasePrice),
+                stock: Number(productForm.stock) || 0
+            };
+            
+            let response;
+            if (editingItem) {
+                response = await productAPI.updateProduct(editingItem._id, data);
+            } else {
+                response = await productAPI.createProduct(data);
+            }
+            
+            if (response.data.success) {
+                toast.success(editingItem ? 'Product updated successfully' : 'Product created successfully');
+                setIsProductModalOpen(false);
+                setEditingItem(null);
+                setProductForm({
+                    name: "", sellingPrice: "", purchasePrice: "", description: "", 
+                    category: "General", image: "", stock: 0, unit: "পিস", 
+                    liveStatus: "live", brand: "", sku: ""
+                });
+                fetchAllData();
+            }
+        } catch (error) {
+            console.error('Product operation error:', error);
+            toast.error(error.response?.data?.message || 'Operation failed');
+        }
     };
-    
-    console.log('Submitting product:', data);
-    
-    if (editingItem) {
-      const response = await productAPI.updateProduct(editingItem._id, data);
-      if (response.data.success) {
-        toast.success('Product updated successfully');
-      }
-    } else {
-      const response = await productAPI.createProduct(data);
-      if (response.data.success) {
-        toast.success('Product created successfully');
-      }
-    }
 
-    setIsProductModalOpen(false);
-    setEditingItem(null);
-    setProductForm({
-      name: "", sellingPrice: "", purchasePrice: "", description: "", 
-      category: "General", image: "", stock: 0, unit: "পিস", liveStatus: "live"
-    });
-    fetchAllData();
-  } catch (error) {
-    console.error('Product operation error:', error);
-    toast.error(error.response?.data?.message || 'Operation failed');
-  }
-};
+    const handleDeleteProduct = async (productId) => {
+        if (!window.confirm("Are you sure you want to delete this product?")) return;
+        try {
+            const response = await productAPI.deleteProduct(productId);
+            if (response.data.success) {
+                toast.success("Product deleted successfully");
+                fetchAllData();
+            }
+        } catch (error) {
+            console.error('Delete error:', error);
+            toast.error(error.response?.data?.message || "Failed to delete product");
+        }
+    };
 
+    // --- User Handlers ---
     const handleUserSubmit = async (e) => {
         e.preventDefault();
         try {
             if (editingItem) {
-                await API.put(`/admin/users/${editingItem._id}`, userForm);
-                toast.success("User updated");
+                const response = await adminAPI.updateUser(editingItem._id, userForm);
+                if (response.data.success) {
+                    toast.success("User updated successfully");
+                    setIsUserModalOpen(false);
+                    fetchAllData();
+                }
             }
-            setIsUserModalOpen(false);
-            fetchAllData();
         } catch (error) {
-            toast.error("Failed to update user");
+            console.error('User update error:', error);
+            toast.error(error.response?.data?.message || "Failed to update user");
         }
     };
 
     const handleDeleteUser = async (userId) => {
         if (!window.confirm("Are you sure you want to delete this user?")) return;
         try {
-            await axios.delete(`/api/admin/users/${userId}`);
-            toast.success("User deleted");
-            fetchAllData();
+            const response = await adminAPI.deleteUser(userId);
+            if (response.data.success) {
+                toast.success("User deleted successfully");
+                fetchAllData();
+            }
         } catch (error) {
-            toast.error("Failed to delete user");
+            console.error('Delete user error:', error);
+            toast.error(error.response?.data?.message || "Failed to delete user");
+        }
+    };
+
+    const handleApproveSeller = async (userId) => {
+        try {
+            const response = await adminAPI.approveSeller(userId);
+            if (response.data.success) {
+                toast.success("Seller approved successfully");
+                fetchAllData();
+            }
+        } catch (error) {
+            console.error('Approve seller error:', error);
+            toast.error(error.response?.data?.message || "Failed to approve seller");
         }
     };
 
     // Chart Data Preparation
     const salesChartData = stats.dailyStats?.map(d => ({
         name: d._id,
-        amount: d.sales
+        sales: d.sales || 0,
+        revenue: d.revenue || 0,
+        orders: d.orders || 0
     })) || [];
 
     const topProductChartData = stats.topProducts?.map(p => ({
         name: p.product?.name?.slice(0, 15) || 'Unknown',
-        value: p.totalSold
+        value: p.totalSold || 0,
+        revenue: p.totalRevenue || 0
     })) || [];
-
 
     const monthlySalesChartData = stats.monthlySales?.map(m => ({
         name: m._id,
-        amount: m.total
+        sales: m.total || 0,
+        profit: m.profit || 0
     })) || [];
+
+    const categoryDistribution = products.reduce((acc, p) => {
+        acc[p.category] = (acc[p.category] || 0) + 1;
+        return acc;
+    }, {});
+
+    const categoryChartData = Object.keys(categoryDistribution).map(key => ({
+        name: key,
+        value: categoryDistribution[key]
+    }));
+
+    const orderStatusData = [
+        { name: 'Pending', value: orders.filter(o => o.status === 'pending').length },
+        { name: 'Processing', value: orders.filter(o => o.status === 'processing').length },
+        { name: 'Shipped', value: orders.filter(o => o.status === 'shipped').length },
+        { name: 'Delivered', value: orders.filter(o => o.status === 'delivered').length },
+        { name: 'Cancelled', value: orders.filter(o => o.status === 'cancelled').length },
+    ];
 
     const inventoryAgingData = stats.inventoryAging || [];
 
     const filteredProducts = products.filter(p =>
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (p.category && p.category.toLowerCase().includes(searchQuery.toLowerCase()))
+        (p.category && p.category.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (p.sku && p.sku.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+
+    const filteredUsers = users.filter(u =>
+        u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        u.phoneNumber?.includes(searchQuery)
+    );
+
+    const filteredOrders = orders.filter(o =>
+        o.orderNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        o.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        o.user?.email?.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     const COLORS = ['#088178', '#36a2eb', '#ffce56', '#ff6384', '#9966ff', '#4bc0c0', '#ff9f40', '#c9cbcf'];
 
+    const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('en-BD', {
+            style: 'currency',
+            currency: 'BDT',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(amount || 0);
+    };
+
+    const getStatusColor = (status) => {
+        const colors = {
+            'pending': 'bg-yellow-100 text-yellow-700',
+            'processing': 'bg-blue-100 text-blue-700',
+            'shipped': 'bg-purple-100 text-purple-700',
+            'delivered': 'bg-green-100 text-green-700',
+            'cancelled': 'bg-red-100 text-red-700',
+            'paid': 'bg-green-100 text-green-700',
+            'unpaid': 'bg-yellow-100 text-yellow-700',
+            'active': 'bg-green-100 text-green-700',
+            'inactive': 'bg-gray-100 text-gray-700'
+        };
+        return colors[status] || 'bg-gray-100 text-gray-700';
+    };
+
     return (
-        <div className="min-h-screen bg-[#ffffff] flex flex-col md:flex-row no-copy w-full font-['Spartan']">
+        <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row w-full font-['Inter']">
             {/* Sidebar */}
-            <div className="w-full md:w-64 bg-[#041e42] text-white p-6 flex flex-col gap-5 md:min-h-screen ">
-                <div className="flex items-center gap-2">
-                    <div className="bg-[#088178] p-2.5 rounded-2xl shadow-lg shadow-teal-500/20"><LayoutDashboard size={24} /></div>
+            <div className="w-full md:w-72 bg-gradient-to-b from-[#041e42] to-[#0a2a5a] text-white p-6 flex flex-col gap-5 md:min-h-screen shadow-2xl">
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="bg-gradient-to-br from-[#088178] to-teal-400 p-3 rounded-2xl shadow-lg">
+                        <LayoutDashboard size={28} />
+                    </div>
                     <div>
                         <h2 className="text-xl font-black tracking-tight">PARASH FERI</h2>
-                        <p className="text-[10px] text-teal-400 font-bold uppercase tracking-widest">Admin Panel</p>
+                        <p className="text-[10px] text-teal-300 font-bold uppercase tracking-widest">Admin Panel v2.0</p>
                     </div>
                 </div>
-                <div className="pb-4 border-b border-white">
-                    <Link to="/" className="text-[14px] text-yellow-500"><StoreIcon size={16} className="inline mr-1" /> {currentUser?.name} </Link>
+                
+                <div className="pb-4 border-b border-white/10">
+                    <Link to="/" className="text-sm text-yellow-400 hover:text-yellow-300 flex items-center gap-2 transition">
+                        <StoreIcon size={16} /> 
+                        <span className="font-medium">{currentUser?.name || 'Dashboard'}</span>
+                    </Link>
                 </div>
 
-
-                <nav className="flex flex-col gap-2">
+                <nav className="flex flex-col gap-1 flex-1">
                     {[
-                        { id: 'overview', icon: LayoutDashboard, label: 'Overview' },
-                        { id: 'inventory', icon: Package, label: 'Inventory' },
-                        { id: 'sales', icon: TrendingUp, label: 'Sales' },
-                        { id: 'purchases', icon: ShoppingBag, label: 'Purchases' },
-                        { id: 'cashbox', icon: Banknote, label: 'Cash Box' },
-                        { id: 'orders', icon: ShoppingCart, label: 'Orders' },
-                        { id: 'users', icon: Users, label: 'User Directory' },
+                        { id: 'overview', icon: LayoutDashboard, label: 'Overview', color: 'text-blue-400' },
+                        { id: 'inventory', icon: Package, label: 'Inventory', color: 'text-green-400' },
+                        { id: 'sales', icon: TrendingUpIcon, label: 'Sales', color: 'text-purple-400' },
+                        { id: 'purchases', icon: ShoppingBag, label: 'Purchases', color: 'text-orange-400' },
+                        { id: 'cashbox', icon: Wallet, label: 'Cash Box', color: 'text-yellow-400' },
+                        { id: 'orders', icon: ShoppingCart, label: 'Orders', color: 'text-pink-400' },
+                        { id: 'users', icon: Users, label: 'Users', color: 'text-indigo-400' },
                     ].map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
-                            className={`flex items-center gap-4 px-5 py-4 rounded-xl font-small transition-all ${activeTab === tab.id ? 'bg-[#088178] text-white shadow-lg shadow-teal-700/20 scale-105' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                            className={`flex items-center gap-4 px-5 py-3.5 rounded-xl font-medium transition-all ${
+                                activeTab === tab.id 
+                                    ? 'bg-gradient-to-r from-[#088178] to-teal-600 text-white shadow-lg shadow-teal-700/30 scale-[1.02]' 
+                                    : 'text-gray-300 hover:text-white hover:bg-white/5'
+                            }`}
                         >
-                            <tab.icon size={20} /> {tab.label}
+                            <tab.icon size={20} className={activeTab === tab.id ? 'text-white' : tab.color} />
+                            <span>{tab.label}</span>
+                            {tab.id === 'orders' && orders.length > 0 && (
+                                <span className="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                                    {orders.filter(o => o.status === 'pending').length}
+                                </span>
+                            )}
                         </button>
                     ))}
                 </nav>
 
-                <div className="mt-auto pt-6 border-t border-white">
-                    <Link to="/" className="flex items-center gap-3 text-gray-400 hover:text-white font-bold text-sm transition-colors group">
-                        <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" /> Back to Home
+                <div className="pt-6 border-t border-white/10">
+                    <Link to="/" className="flex items-center gap-3 text-gray-400 hover:text-white font-medium text-sm transition-colors group">
+                        <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" /> 
+                        Back to Store
                     </Link>
                 </div>
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 p-6 md:p-12 overflow-x-hidden">
-                <header className="mb-12 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div className="flex-1 p-6 lg:p-8 overflow-x-hidden">
+                {/* Header */}
+                <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                        <h1 className="text-4xl font-black text-gray-900 capitalize tracking-tight">{activeTab.replace(/([A-Z])/g, ' $1')}</h1>
-                        <p className="text-gray-400 font-medium">Monitoring business metrics and operations</p>
+                        <h1 className="text-3xl lg:text-4xl font-black text-gray-900 capitalize">
+                            {activeTab.replace(/([A-Z])/g, ' $1')}
+                        </h1>
+                        <p className="text-gray-500 mt-1 flex items-center gap-2">
+                            <Clock size={14} />
+                            {new Date().toLocaleDateString('en-US', { 
+                                weekday: 'long', 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                            })}
+                        </p>
                     </div>
 
-                    <div className="flex gap-3">
+                    <div className="flex flex-wrap gap-3">
+                        {/* Date Range Filter */}
+                        <select 
+                            value={dateRange}
+                            onChange={(e) => setDateRange(e.target.value)}
+                            className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-[#088178] outline-none"
+                        >
+                            <option value="week">Last 7 Days</option>
+                            <option value="month">Last 30 Days</option>
+                            <option value="quarter">Last 90 Days</option>
+                            <option value="year">Last 12 Months</option>
+                        </select>
+
+                        {/* Action Buttons */}
                         {activeTab === 'inventory' && (
-                            <button onClick={() => { setIsProductModalOpen(true); setEditingItem(null); setProductForm({ name: "", sellingPrice: "", purchasePrice: "", description: "", category: "General", image: "", stock: 0, unit: "পিস", liveStatus: "live" }); }} className="bg-[#088178] text-white px-6 py-3.5 rounded-xl font-bold shadow-xl shadow-teal-900/10 flex items-center gap-2 hover:scale-105 transition-all">
-                                <Plus size={20} /> Add Product
+                            <button 
+                                onClick={() => { 
+                                    setIsProductModalOpen(true); 
+                                    setEditingItem(null); 
+                                }} 
+                                className="bg-[#088178] text-white px-5 py-2.5 rounded-xl font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2"
+                            >
+                                <Plus size={18} /> Add Product
                             </button>
                         )}
                         {activeTab === 'cashbox' && (
-                            <button onClick={() => setIsTransactionModalOpen(true)} className="bg-[#088178] text-white px-6 py-3.5 rounded-xl font-bold shadow-xl shadow-teal-900/10 flex items-center gap-2 hover:scale-105 transition-all">
-                                <Plus size={30} /> Add Transaction
+                            <button 
+                                onClick={() => setIsTransactionModalOpen(true)} 
+                                className="bg-[#088178] text-white px-5 py-2.5 rounded-xl font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2"
+                            >
+                                <Plus size={18} /> Add Transaction
                             </button>
                         )}
                         {activeTab === 'sales' && (
-                            <button onClick={() => setIsSaleModalOpen(true)} className="bg-[#088178] text-white px-6 py-3.5 rounded-xl font-bold shadow-xl shadow-teal-900/10 flex items-center gap-2 hover:scale-105 transition-all">
-                                <Plus size={20} /> Add Sale
+                            <button 
+                                onClick={() => setIsSaleModalOpen(true)} 
+                                className="bg-[#088178] text-white px-5 py-2.5 rounded-xl font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2"
+                            >
+                                <Plus size={18} /> Record Sale
                             </button>
                         )}
                         {activeTab === 'purchases' && (
-                            <button onClick={() => setIsPurchaseModalOpen(true)} className="bg-[#088178] text-white px-6 py-3.5 rounded-xl font-bold shadow-xl shadow-teal-900/10 flex items-center gap-2 hover:scale-105 transition-all">
-                                <Plus size={20} /> Add Purchase
+                            <button 
+                                onClick={() => setIsPurchaseModalOpen(true)} 
+                                className="bg-[#088178] text-white px-5 py-2.5 rounded-xl font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2"
+                            >
+                                <Plus size={18} /> Add Purchase
                             </button>
                         )}
 
-                        <div className="flex bg-white p-1 rounded-2xl border border-gray-100 shadow-sm">
-                            <button onClick={() => exportToExcel(activeTab === 'inventory' ? products : (activeTab === 'sales' ? sales : transactions), activeTab)} className="p-3 hover:bg-gray-50 text-gray-500 rounded-xl transition-colors" title="Export Excel"><FileSpreadsheet size={20} /></button>
-                            <button className="p-3 hover:bg-gray-50 text-gray-500 rounded-xl transition-colors" title="Print Report"><Printer size={20} /></button>
+                        {/* Export Dropdown */}
+                        <div className="relative group">
+                            <button className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 transition-all flex items-center gap-2">
+                                <Download size={18} /> Export
+                            </button>
+                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 hidden group-hover:block z-50">
+                                <button 
+                                    onClick={() => {
+                                        let data = [];
+                                        if (activeTab === 'inventory') data = products;
+                                        else if (activeTab === 'sales') data = sales;
+                                        else if (activeTab === 'purchases') data = purchases;
+                                        else if (activeTab === 'cashbox') data = transactions;
+                                        else if (activeTab === 'users') data = users;
+                                        else if (activeTab === 'orders') data = orders;
+                                        exportToExcel(data, activeTab);
+                                    }}
+                                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-sm"
+                                >
+                                    <FileSpreadsheet size={16} /> Excel
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        let headers = [];
+                                        let data = [];
+                                        if (activeTab === 'inventory') {
+                                            headers = ['Name', 'Category', 'Price', 'Stock'];
+                                            data = products.map(p => ({ name: p.name, category: p.category, price: p.price, stock: p.stock }));
+                                        }
+                                        exportToPDF(headers, data, activeTab, `${activeTab} Report`);
+                                    }}
+                                    className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-sm"
+                                >
+                                    <FileText size={16} /> PDF
+                                </button>
+                            </div>
                         </div>
+
+                        <button 
+                            onClick={fetchAllData} 
+                            className="p-2.5 bg-white border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 transition-all"
+                            title="Refresh"
+                        >
+                            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+                        </button>
                     </div>
-                </header>
+                </div>
 
                 {loading ? (
                     <div className="flex flex-col items-center justify-center py-32 gap-4">
-                        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-[#088178] border-opacity-30"></div>
-                        <p className="text-gray-400 font-bold animate-pulse">Loading..</p>
+                        <div className="animate-spin rounded-full h-16 w-16 border-4 border-[#088178] border-t-transparent"></div>
+                        <p className="text-gray-500 font-medium">Loading dashboard data...</p>
                     </div>
                 ) : (
-                    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }}>
-
+                    <motion.div 
+                        key={activeTab}
+                        initial={{ opacity: 0, y: 20 }} 
+                        animate={{ opacity: 1, y: 0 }} 
+                        transition={{ duration: 0.5 }}
+                    >
+                        {/* Overview Tab */}
                         {activeTab === 'overview' && (
-                            <div className="space-y-5">
-                                {/* Stats Cards */}
-                                <div className="grid grid-cols md:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div className="space-y-6">
+                                {/* KPI Cards */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                     {[
-                                        { label: "Total Sales", val: `৳${stats.totalSales || 0}`, icon: TrendingUp, color: "text-green-600", bg: "bg-green-50" },
-                                        { label: "Cash Box", val: `৳${stats.totalCashBox || 0}`, icon: Banknote, color: "text-blue-600", bg: "bg-blue-50" },
-                                        { label: "Total Profit", val: `৳${stats.totalProfit || 0}`, icon: ArrowUpRight, color: "text-teal-600", bg: "bg-teal-50" },
-                                        { label: "Total Loss", val: `৳${stats.totalLoss || 0}`, icon: ArrowDownRight, color: "text-red-600", bg: "bg-red-50" },
-                                        { label: "Inventory Value", val: `৳${stats.totalStockValue || 0}`, icon: Package, color: "text-indigo-600", bg: "bg-indigo-50" },
-                                        { label: "Total Cost", val: `৳${stats.totalCost || 0}`, icon: ShoppingBag, color: "text-orange-600", bg: "bg-orange-50" },
-                                        { label: "Active Users", val: stats.activeUsers || 0, icon: Users, color: "text-purple-600", bg: "bg-purple-50" },
-                                        { label: "Products", val: stats.totalProducts || 0, icon: Package, color: "text-gray-600", bg: "bg-gray-100" },
+                                        { 
+                                            label: "Total Revenue", 
+                                            val: formatCurrency(stats.totalSales || 0), 
+                                            icon: DollarSign, 
+                                            change: "+12.5%",
+                                            color: "text-green-600", 
+                                            bg: "bg-green-50",
+                                            border: "border-green-200"
+                                        },
+                                        { 
+                                            label: "Cash Balance", 
+                                            val: formatCurrency(stats.totalCashBox || 0), 
+                                            icon: Wallet, 
+                                            change: "+5.2%",
+                                            color: "text-blue-600", 
+                                            bg: "bg-blue-50",
+                                            border: "border-blue-200"
+                                        },
+                                        { 
+                                            label: "Total Profit", 
+                                            val: formatCurrency(stats.totalProfit || 0), 
+                                            icon: TrendingUp, 
+                                            change: "+18.3%",
+                                            color: "text-purple-600", 
+                                            bg: "bg-purple-50",
+                                            border: "border-purple-200"
+                                        },
+                                        { 
+                                            label: "Total Orders", 
+                                            val: stats.totalOrders || 0, 
+                                            icon: ShoppingCart, 
+                                            change: "+8.1%",
+                                            color: "text-orange-600", 
+                                            bg: "bg-orange-50",
+                                            border: "border-orange-200"
+                                        },
                                     ].map((s, i) => (
-                                        <div key={i} className="bg-white p-6 rounded-xl shadow-sm border border-green-600 hover:shadow-xl hover:-translate-y-1 transition-all group overflow-hidden relative">
-                                            <div className="flex items-start justify-between relative z-10">
-                                                <div>
-                                                    <h3 className="text-gray-600 font-black uppercase text-[10px] tracking-[0.15em] mb-2">{s.label}</h3>
-                                                    <p className="text-xl font-black text-black">{s.val}</p>
+                                        <div key={i} className={`bg-white p-6 rounded-2xl shadow-sm border ${s.border} hover:shadow-xl transition-all group`}>
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className={`p-3 rounded-xl ${s.bg}`}>
+                                                    <s.icon size={24} className={s.color} />
                                                 </div>
-                                                <div className={`p-3 rounded-2xl ${s.bg} ${s.color} group-hover:scale-110 transition-transform`}>
-                                                    <s.icon size={22} />
-                                                </div>
+                                                <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-full">
+                                                    {s.change}
+                                                </span>
                                             </div>
-                                            <div className={`absolute -bottom-4 -right-4 w-20 h-20 ${s.bg} opacity-10 rounded-full blur-2xl`}></div>
+                                            <p className="text-gray-500 text-sm font-medium mb-1">{s.label}</p>
+                                            <p className="text-2xl font-black text-gray-900">{s.val}</p>
                                         </div>
                                     ))}
                                 </div>
 
-                                {/* Charts Section */}
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                    <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
-                                        <div className="flex justify-between items-center mb-8">
-                                            <h3 className="text-lg font-black text-gray-800 flex items-center gap-2"><BarChart3 size={20} className="text-[#088178]" /> Weekly Sales Revenue</h3>
-                                            <select className="bg-gray-50 text-xs font-bold border-none rounded-xl px-3 py-2 outline-none">
-                                                <option>Last 7 Days</option>
-                                                <option>Last 30 Days</option>
+                                {/* Charts Row 1 */}
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* Sales Trend */}
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                                <Activity size={20} className="text-[#088178]" /> 
+                                                Sales Trend
+                                            </h3>
+                                            <select className="text-sm border border-gray-200 rounded-lg px-3 py-1.5">
+                                                <option>Daily</option>
+                                                <option>Weekly</option>
+                                                <option>Monthly</option>
                                             </select>
                                         </div>
-                                        <div className="h-[300px] w-full">
+                                        <div className="h-80">
                                             <ResponsiveContainer width="100%" height="100%">
-                                                <AreaChart data={salesChartData}>
-                                                    <defs>
-                                                        <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                                                            <stop offset="5%" stopColor="#088178" stopOpacity={0.1} />
-                                                            <stop offset="95%" stopColor="#088178" stopOpacity={0} />
-                                                        </linearGradient>
-                                                    </defs>
-                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 12, fontWeight: 700 }} dy={10} />
-                                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 12, fontWeight: 700 }} />
-                                                    <Tooltip
-                                                        contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontWeight: 800 }}
-                                                        cursor={{ stroke: '#088178', strokeWidth: 2, strokeDasharray: '5 5' }}
-                                                    />
-                                                    <Area type="monotone" dataKey="amount" stroke="#088178" strokeWidth={4} fillOpacity={1} fill="url(#colorSales)" />
-                                                </AreaChart>
+                                                <ComposedChart data={salesChartData}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                                                    <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
+                                                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
+                                                    <Tooltip />
+                                                    <Legend />
+                                                    <Area yAxisId="left" type="monotone" dataKey="sales" fill="#088178" stroke="#088178" fillOpacity={0.2} />
+                                                    <Line yAxisId="right" type="monotone" dataKey="orders" stroke="#ff7300" strokeWidth={2} />
+                                                </ComposedChart>
                                             </ResponsiveContainer>
                                         </div>
                                     </div>
 
-                                    <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col">
-                                        <h3 className="text-lg font-black text-gray-800 mb-8 flex items-center gap-2"><PieChart size={20} className="text-orange-500" /> Top Selling Efficiency</h3>
-                                        <div className="flex-1 min-h-[300px]">
+                                    {/* Top Products */}
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+                                            <PieChartIcon size={20} className="text-orange-500" /> 
+                                            Top Products
+                                        </h3>
+                                        <div className="h-80">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <PieChart>
-                                                    <Pie data={topProductChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={10} dataKey="value">
-                                                        {topProductChartData.map((entry, index) => (
-                                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} cornerRadius={8} />
+                                                    <Pie
+                                                        data={topProductChartData.slice(0, 5)}
+                                                        cx="50%"
+                                                        cy="50%"
+                                                        innerRadius={60}
+                                                        outerRadius={100}
+                                                        paddingAngle={5}
+                                                        dataKey="value"
+                                                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                                    >
+                                                        {topProductChartData.slice(0, 5).map((entry, index) => (
+                                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                                         ))}
                                                     </Pie>
                                                     <Tooltip />
                                                 </PieChart>
                                             </ResponsiveContainer>
                                         </div>
-                                        <div className="grid grid-cols-2 gap-4 mt-4">
-                                            {topProductChartData.map((c, i) => (
-                                                <div key={i} className="flex items-center gap-2">
-                                                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
-                                                    <span className="text-xs font-bold text-gray-500 truncate max-w-[120px]">{c.name}</span>
-                                                </div>
-                                            ))}
-                                        </div>
                                     </div>
                                 </div>
 
-                                {/* Secondary Advanced Charts Section */}
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
-                                    <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col">
-                                        <h3 className="text-lg font-black text-gray-800 mb-8 flex items-center gap-2"><BarChart3 size={20} className="text-blue-500" /> Monthly Sales (12 Mo)</h3>
-                                        <div className="flex-1 min-h-[300px]">
+                                {/* Charts Row 2 */}
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* Monthly Performance */}
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+                                            <BarChart3 size={20} className="text-blue-500" /> 
+                                            Monthly Performance
+                                        </h3>
+                                        <div className="h-80">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <BarChart data={monthlySalesChartData}>
-                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 10, fontWeight: 700 }} dy={10} />
-                                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 10, fontWeight: 700 }} />
-                                                    <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontWeight: 800 }} cursor={{ fill: 'rgba(54, 162, 235, 0.05)' }} />
-                                                    <Bar dataKey="amount" fill="#36a2eb" radius={[4, 4, 0, 0]} barSize={30} />
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                                                    <YAxis tick={{ fontSize: 12 }} />
+                                                    <Tooltip />
+                                                    <Legend />
+                                                    <Bar dataKey="sales" fill="#088178" radius={[4, 4, 0, 0]} />
+                                                    <Bar dataKey="profit" fill="#36a2eb" radius={[4, 4, 0, 0]} />
                                                 </BarChart>
                                             </ResponsiveContainer>
                                         </div>
                                     </div>
 
-                                    <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col">
-                                        <h3 className="text-lg font-black text-gray-800 mb-8 flex items-center gap-2"><Package size={20} className="text-indigo-500" /> Inventory Aging Alerts {`> 30 Days`}</h3>
-                                        <div className="flex-1 overflow-x-auto">
-                                            {inventoryAgingData.length === 0 ? (
-                                                <div className="flex items-center justify-center h-full text-sm font-bold text-gray-400">No aging inventory detected.</div>
-                                            ) : (
-                                                <table className="w-full text-left">
-                                                    <thead className="text-[10px] text-gray-400 uppercase font-bold tracking-widest border-b border-gray-100">
-                                                        <tr>
-                                                            <th className="pb-4">Product Name</th>
-                                                            <th className="pb-4">Stock</th>
-                                                            <th className="pb-4">Created Date</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-gray-50">
-                                                        {inventoryAgingData.map((item) => (
-                                                            <tr key={item._id} className="hover:bg-gray-50 transition-colors">
-                                                                <td className="py-4 font-bold text-gray-800 flex items-center gap-2">
-                                                                    <div className="w-8 h-8 rounded-lg overflow-hidden bg-gray-100"><img src={item.image} alt="pic" className="w-full h-full object-cover" /></div>
-                                                                    {item.name.slice(0, 20)}...
-                                                                </td>
-                                                                <td className="py-4 font-black text-orange-500">{item.stock} unit</td>
-                                                                <td className="py-4 text-xs font-bold text-gray-400">{new Date(item.createdAt).toLocaleDateString()}</td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
+                                    {/* Inventory Aging */}
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+                                            <Package size={20} className="text-indigo-500" /> 
+                                            Inventory Aging (&gt;30 days)
+                                        </h3>
+                                        <div className="space-y-4">
+                                            {inventoryAgingData.slice(0, 5).map(item => (
+                                                <div key={item._id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                                                    <div className="flex items-center gap-3">
+                                                        <img 
+                                                            src={item.image || '/placeholder.png'} 
+                                                            alt={item.name}
+                                                            className="w-10 h-10 rounded-lg object-cover"
+                                                        />
+                                                        <div>
+                                                            <p className="font-bold text-sm">{item.name.slice(0, 30)}...</p>
+                                                            <p className="text-xs text-gray-500">Stock: {item.stock} units</p>
+                                                        </div>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-orange-600 bg-orange-50 px-2 py-1 rounded-full">
+                                                        {Math.floor((new Date() - new Date(item.createdAt)) / (1000 * 60 * 60 * 24))} days
+                                                    </span>
+                                                </div>
+                                            ))}
+                                            {inventoryAgingData.length === 0 && (
+                                                <p className="text-center text-gray-500 py-8">No aging inventory</p>
                                             )}
                                         </div>
+                                    </div>
+                                </div>
+
+                                {/* Recent Orders */}
+                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h3 className="text-lg font-bold text-gray-800">Recent Orders</h3>
+                                        <button 
+                                            onClick={() => setActiveTab('orders')}
+                                            className="text-sm text-[#088178] hover:underline"
+                                        >
+                                            View All →
+                                        </button>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full">
+                                            <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
+                                                <tr>
+                                                    <th className="px-4 py-3 text-left">Order #</th>
+                                                    <th className="px-4 py-3 text-left">Customer</th>
+                                                    <th className="px-4 py-3 text-left">Amount</th>
+                                                    <th className="px-4 py-3 text-left">Status</th>
+                                                    <th className="px-4 py-3 text-left">Date</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {stats.recentOrders?.map(order => (
+                                                    <tr key={order._id} className="hover:bg-gray-50">
+                                                        <td className="px-4 py-3 font-mono text-sm">{order.orderNumber}</td>
+                                                        <td className="px-4 py-3">{order.user?.name}</td>
+                                                        <td className="px-4 py-3 font-bold text-[#088178]">৳{order.totalPrice}</td>
+                                                        <td className="px-4 py-3">
+                                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${getStatusColor(order.status)}`}>
+                                                                {order.status}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-sm text-gray-500">
+                                                            {new Date(order.createdAt).toLocaleDateString()}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
                                     </div>
                                 </div>
                             </div>
                         )}
 
+                        {/* Inventory Tab */}
                         {activeTab === 'inventory' && (
-                            <div className="bg-white rounded-[1rem] shadow-sm border border-green-600 overflow-hidden">
-                                <div className="p-8 border-b border-green-600 flex justify-between items-center">
-                                    <div className="relative w-full max-w-sm">
-                                        <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search product name..." className="w-full bg-gray-200 border-black rounded-2xl py-3 pl-12 pr-4 text-sm font-medium focus:ring-2 focus:ring-[#088178]" />
-                                        <Search className="absolute left-4 top-3 text-gray-300" size={18} />
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
+                                    <div className="relative w-full md:w-96">
+                                        <input 
+                                            type="text" 
+                                            value={searchQuery} 
+                                            onChange={(e) => setSearchQuery(e.target.value)} 
+                                            placeholder="Search products by name, SKU, category..." 
+                                            className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#088178] outline-none"
+                                        />
+                                        <Search className="absolute left-3 top-3.5 text-gray-400" size={18} />
                                     </div>
-                                    <div className="flex gap-2">
-                                        <button className="px-4 py-2 bg-gray-200 text-black rounded-xl font-bold text-xs hover:bg-gray-100 transition">Filter</button>
-                                        <button className="px-4 py-2 bg-gray-200 text-black rounded-xl font-bold text-xs hover:bg-gray-100 transition">Delete Selected</button>
+                                    <div className="flex gap-2 w-full md:w-auto">
+                                        <select className="px-4 py-3 border border-gray-200 rounded-xl text-sm">
+                                            <option>All Categories</option>
+                                            {Object.keys(categoryDistribution).map(cat => (
+                                                <option key={cat}>{cat}</option>
+                                            ))}
+                                        </select>
+                                        <select className="px-4 py-3 border border-gray-200 rounded-xl text-sm">
+                                            <option>All Status</option>
+                                            <option>Live</option>
+                                            <option>Draft</option>
+                                            <option>Archived</option>
+                                        </select>
                                     </div>
                                 </div>
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-left">
-                                        <thead className="bg-gray-50 text-black text-[10px] uppercase font-black tracking-widest">
+                                    <table className="w-full">
+                                        <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
                                             <tr>
-                                                <th className="px-8 py-6">Product</th>
-                                                <th className="px-8 py-6">Purchase Price</th>
-                                                <th className="px-8 py-6">Selling Price</th>
-                                                <th className="px-8 py-6 text-center">In Stock</th>
-                                                <th className="px-8 py-6 text-center">Unit</th>
-                                                <th className="px-8 py-6 text-right">Actions</th>
+                                                <th className="px-6 py-4 text-left">Product</th>
+                                                <th className="px-6 py-4 text-left">SKU</th>
+                                                <th className="px-6 py-4 text-left">Category</th>
+                                                <th className="px-6 py-4 text-right">Purchase</th>
+                                                <th className="px-6 py-4 text-right">Selling</th>
+                                                <th className="px-6 py-4 text-center">Stock</th>
+                                                <th className="px-6 py-4 text-center">Status</th>
+                                                <th className="px-6 py-4 text-right">Actions</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-gray-50">
+                                        <tbody className="divide-y divide-gray-100">
                                             {filteredProducts.map(p => (
-                                                <tr key={p._id} className="hover:bg-gray-50/50 transition-colors group">
-                                                    <td className="px-4 py-4 flex items-center gap-4">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="w-14 h-14 bg-gray-50 rounded-xl p-2 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                                                <img src={p.image} className="max-w-full max-h-full object-contain" onError={(e) => e.target.src = 'https://via.placeholder.com/60'} />
-                                                            </div>
+                                                <tr key={p._id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-3">
+                                                            <img 
+                                                                src={p.image || '/placeholder.png'} 
+                                                                alt={p.name}
+                                                                className="w-12 h-12 rounded-lg object-cover bg-gray-50"
+                                                                onError={(e) => e.target.src = 'https://via.placeholder.com/48'}
+                                                            />
                                                             <div>
-                                                                <div className="font-black text-black text-large leading-tight mb-1">
-                                                                    {p.liveStatus === 'live' && <span className="mr-1 inline-block" title="Live">🟢</span>}
-                                                                    {p.liveStatus === 'issue' && <span className="mr-1 inline-block" title="Any Issue">🟡</span>}
-                                                                    {p.liveStatus === 'not-available' && <span className="mr-1 inline-block" title="Not available for customer">🔴</span>}
-                                                                    {p.name}
-                                                                </div>
-                                                                <div className="text-[10px] text-[#088178] uppercase tracking-wider">{p.category}</div>
+                                                                <div className="font-bold text-gray-900">{p.name}</div>
+                                                                <div className="text-xs text-gray-500">{p.brand || 'No Brand'}</div>
                                                             </div>
                                                         </div>
                                                     </td>
-                                                    <td className="px-8 py-6 font-bold text-gray-500">৳{p.purchasePrice || 0}</td>
-                                                    <td className="px-8 py-6 font-black text-gray-900">৳{p.sellingPrice || p.price}</td>
-                                                    <td className="px-8 py-6 text-center">
-                                                        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase ${p.stock > 10 ? 'bg-green-50 text-green-600' : (p.stock > 0 ? 'bg-orange-50 text-orange-600' : 'bg-red-50 text-red-600')}`}>
-                                                            {p.stock}
+                                                    <td className="px-6 py-4 font-mono text-sm">{p.sku || 'N/A'}</td>
+                                                    <td className="px-6 py-4 text-sm">{p.category}</td>
+                                                    <td className="px-6 py-4 text-right font-medium">৳{p.purchasePrice || 0}</td>
+                                                    <td className="px-6 py-4 text-right font-bold text-[#088178]">৳{p.sellingPrice || p.price}</td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                                            p.stock > 10 ? 'bg-green-100 text-green-700' : 
+                                                            p.stock > 0 ? 'bg-orange-100 text-orange-700' : 
+                                                            'bg-red-100 text-red-700'
+                                                        }`}>
+                                                            {p.stock} {p.unit}
                                                         </span>
                                                     </td>
-                                                    <td className="px-8 py-6 text-center text-xs font-bold text-gray-400">{p.unit || 'পিস'}</td>
-                                                    <td className="px-8 py-6 text-right">
-                                                        <div className="flex gap-2 justify-end opacity-100">
-                                                            <button onClick={() => { setEditingItem(p); setProductForm({ ...p, sellingPrice: p.sellingPrice || p.price }); setIsProductModalOpen(true); }} className="p-2.5 text-[#088178] hover:bg-teal-50 rounded-xl transition-all"><Edit size={18} /></button>
-                                                            <button className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-all"><Trash2 size={18} /></button>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                                                            p.liveStatus === 'live' ? 'bg-green-100 text-green-700' :
+                                                            p.liveStatus === 'draft' ? 'bg-gray-100 text-gray-700' :
+                                                            'bg-red-100 text-red-700'
+                                                        }`}>
+                                                            {p.liveStatus}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        <div className="flex gap-2 justify-end">
+                                                            <button 
+                                                                onClick={() => { 
+                                                                    setEditingItem(p); 
+                                                                    setProductForm({ 
+                                                                        ...p, 
+                                                                        sellingPrice: p.sellingPrice || p.price 
+                                                                    }); 
+                                                                    setIsProductModalOpen(true); 
+                                                                }} 
+                                                                className="p-2 text-[#088178] hover:bg-teal-50 rounded-lg transition"
+                                                                title="Edit"
+                                                            >
+                                                                <Edit size={16} />
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleDeleteProduct(p._id)} 
+                                                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                                                                title="Delete"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {filteredProducts.length === 0 && (
+                                                <tr>
+                                                    <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
+                                                        <Package size={48} className="mx-auto mb-4 text-gray-300" />
+                                                        <p className="text-lg font-medium">No products found</p>
+                                                        <button 
+                                                            onClick={() => setIsProductModalOpen(true)}
+                                                            className="mt-4 px-4 py-2 bg-[#088178] text-white rounded-lg text-sm"
+                                                        >
+                                                            Add Your First Product
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Users Tab */}
+                        {activeTab === 'users' && (
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div className="p-6 border-b border-gray-200">
+                                    <div className="relative w-full md:w-96">
+                                        <input 
+                                            type="text" 
+                                            value={searchQuery} 
+                                            onChange={(e) => setSearchQuery(e.target.value)} 
+                                            placeholder="Search users by name, email, phone..." 
+                                            className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#088178] outline-none"
+                                        />
+                                        <Search className="absolute left-3 top-3.5 text-gray-400" size={18} />
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
+                                            <tr>
+                                                <th className="px-6 py-4 text-left">User</th>
+                                                <th className="px-6 py-4 text-left">Contact</th>
+                                                <th className="px-6 py-4 text-center">Role</th>
+                                                <th className="px-6 py-4 text-center">Status</th>
+                                                <th className="px-6 py-4 text-center">Verified</th>
+                                                <th className="px-6 py-4 text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {filteredUsers.map(u => (
+                                                <tr key={u._id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-10 h-10 bg-gradient-to-br from-[#088178] to-teal-400 rounded-full flex items-center justify-center text-white font-bold">
+                                                                {u.name?.charAt(0).toUpperCase()}
+                                                            </div>
+                                                            <div>
+                                                                <div className="font-bold text-gray-900">{u.name}</div>
+                                                                <div className="text-xs text-gray-500">ID: {u._id.slice(-8)}</div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="text-sm font-medium">{u.email}</div>
+                                                        <div className="text-xs text-gray-500">{u.phoneNumber}</div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                                            u.role === 'admin' ? 'bg-purple-100 text-purple-700' :
+                                                            u.role === 'seller' ? 'bg-orange-100 text-orange-700' :
+                                                            'bg-blue-100 text-blue-700'
+                                                        }`}>
+                                                            {u.role}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                                            u.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                                        }`}>
+                                                            {u.isActive ? 'Active' : 'Inactive'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        {u.isVerified ? (
+                                                            <Check size={18} className="text-green-500 mx-auto" />
+                                                        ) : (
+                                                            <X size={18} className="text-red-500 mx-auto" />
+                                                        )}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        <div className="flex gap-2 justify-end">
+                                                            <button 
+                                                                onClick={() => { 
+                                                                    setEditingItem(u); 
+                                                                    setUserForm({ 
+                                                                        name: u.name, 
+                                                                        email: u.email, 
+                                                                        phoneNumber: u.phoneNumber,
+                                                                        address: u.address || '',
+                                                                        role: u.role,
+                                                                        isActive: u.isActive,
+                                                                        isVerified: u.isVerified
+                                                                    }); 
+                                                                    setIsUserModalOpen(true); 
+                                                                }} 
+                                                                className="p-2 text-[#088178] hover:bg-teal-50 rounded-lg transition"
+                                                                title="Edit"
+                                                            >
+                                                                <Edit size={16} />
+                                                            </button>
+                                                            {u.role === 'seller' && !u.isSellerApproved && (
+                                                                <button 
+                                                                    onClick={() => handleApproveSeller(u._id)} 
+                                                                    className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
+                                                                    title="Approve Seller"
+                                                                >
+                                                                    <Check size={16} />
+                                                                </button>
+                                                            )}
+                                                            {u._id !== currentUser?._id && (
+                                                                <button 
+                                                                    onClick={() => handleDeleteUser(u._id)} 
+                                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                                                                    title="Delete"
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -539,215 +1163,539 @@ const handleProductSubmit = async (e) => {
                             </div>
                         )}
 
+                        {/* Orders Tab */}
+                        {activeTab === 'orders' && (
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div className="p-6 border-b border-gray-200">
+                                    <div className="relative w-full md:w-96">
+                                        <input 
+                                            type="text" 
+                                            value={searchQuery} 
+                                            onChange={(e) => setSearchQuery(e.target.value)} 
+                                            placeholder="Search orders by number, customer..." 
+                                            className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#088178] outline-none"
+                                        />
+                                        <Search className="absolute left-3 top-3.5 text-gray-400" size={18} />
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
+                                            <tr>
+                                                <th className="px-6 py-4 text-left">Order #</th>
+                                                <th className="px-6 py-4 text-left">Customer</th>
+                                                <th className="px-6 py-4 text-left">Items</th>
+                                                <th className="px-6 py-4 text-right">Total</th>
+                                                <th className="px-6 py-4 text-center">Status</th>
+                                                <th className="px-6 py-4 text-center">Payment</th>
+                                                <th className="px-6 py-4 text-left">Date</th>
+                                                <th className="px-6 py-4 text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {filteredOrders.map(o => (
+                                                <tr key={o._id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4 font-mono text-sm font-bold">{o.orderNumber}</td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="font-medium">{o.user?.name}</div>
+                                                        <div className="text-xs text-gray-500">{o.user?.email}</div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm">{o.items?.length || 0} items</td>
+                                                    <td className="px-6 py-4 text-right font-bold text-[#088178]">৳{o.totalPrice}</td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusColor(o.status)}`}>
+                                                            {o.status}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                                            o.isPaid ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                                                        }`}>
+                                                            {o.isPaid ? 'Paid' : 'Unpaid'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm text-gray-500">
+                                                        {new Date(o.createdAt).toLocaleDateString()}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        <div className="flex gap-2 justify-end">
+                                                            <button 
+                                                                onClick={() => handleViewOrder(o)}
+                                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                                                                title="View Details"
+                                                            >
+                                                                                                                                <Eye size={16} />
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleEditOrder(o)}
+                                                                className="p-2 text-[#088178] hover:bg-teal-50 rounded-lg transition"
+                                                                title="Edit Order"
+                                                            >
+                                                                <Edit size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {filteredOrders.length === 0 && (
+                                                <tr>
+                                                    <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
+                                                        <ShoppingCart size={48} className="mx-auto mb-4 text-gray-300" />
+                                                        <p className="text-lg font-medium">No orders found</p>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Cashbox Tab */}
                         {activeTab === 'cashbox' && (
-                            <div className="bg-white rounded-[1rem] shadow-sm border border-green-600 overflow-hidden">
-                                <div className="p-8 border-b border-green-600 flex justify-between items-center">
-                                    <h3 className="font-black text-lg text-gray-800">Transaction History</h3>
-                                    <div className="flex gap-3">
-                                        <div className="bg-green-50 px-4 py-2 rounded-xl border border-green-100">
-                                            <p className="text-[8px] font-black uppercase text-green-600 mb-0.5">Total In</p>
-                                            <p className="text-sm font-black text-green-900">৳{transactions.filter(t => t.type === 'Cash In').reduce((acc, curr) => acc + curr.amount, 0)}</p>
+                            <div className="space-y-6">
+                                {/* Cash Summary Cards */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-green-200">
+                                        <div className="flex items-center gap-4">
+                                            <div className="p-3 bg-green-100 rounded-xl">
+                                                <ArrowUpRight size={24} className="text-green-600" />
+                                            </div>
+                                            <div>
+                                                <p className="text-sm text-gray-500">Total Cash In</p>
+                                                <p className="text-2xl font-black text-gray-900">
+                                                    ৳{transactions.filter(t => t.type === 'Cash In').reduce((sum, t) => sum + t.amount, 0)}
+                                                </p>
+                                            </div>
                                         </div>
-                                        <div className="bg-red-50 px-4 py-2 rounded-xl border border-red-100">
-                                            <p className="text-[8px] font-black uppercase text-red-600 mb-0.5">Total Out</p>
-                                            <p className="text-sm font-black text-red-900">৳{transactions.filter(t => t.type === 'Cash Out').reduce((acc, curr) => acc + curr.amount, 0)}</p>
+                                    </div>
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-red-200">
+                                        <div className="flex items-center gap-4">
+                                            <div className="p-3 bg-red-100 rounded-xl">
+                                                <ArrowDownRight size={24} className="text-red-600" />
+                                            </div>
+                                            <div>
+                                                <p className="text-sm text-gray-500">Total Cash Out</p>
+                                                <p className="text-2xl font-black text-gray-900">
+                                                    ৳{transactions.filter(t => t.type === 'Cash Out').reduce((sum, t) => sum + t.amount, 0)}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-200">
+                                        <div className="flex items-center gap-4">
+                                            <div className="p-3 bg-blue-100 rounded-xl">
+                                                <Wallet size={24} className="text-blue-600" />
+                                            </div>
+                                            <div>
+                                                <p className="text-sm text-gray-500">Current Balance</p>
+                                                <p className="text-2xl font-black text-gray-900">
+                                                    ৳{stats.totalCashBox || 0}
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                                <table className="w-full text-left">
-                                    <thead className="bg-gray-100 text-black text-[10px] uppercase font-black tracking-widest">
-                                        <tr>
-                                            <th className="px-8 py-6">Reference/Desc</th>
-                                            <th className="px-8 py-6 text-center">Type</th>
-                                            <th className="px-8 py-6">Amount</th>
-                                            <th className="px-8 py-6">Time</th>
-                                            <th className="px-8 py-6 text-right">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-50">
-                                        {transactions.map(t => (
-                                            <tr key={t._id} className="hover:bg-gray-50/50">
-                                                <td className="px-8 py-6 font-bold text-gray-700">{t.description}</td>
-                                                <td className="px-8 py-6 text-center">
-                                                    <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase ${t.type === 'Cash In' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>{t.type}</span>
-                                                </td>
-                                                <td className="px-8 py-6 font-black text-gray-900">৳{t.amount}</td>
-                                                <td className="px-8 py-6 text-xs text-gray-400 font-bold">{new Date(t.createdAt).toLocaleString()}</td>
-                                                <td className="px-8 py-6 text-right"><button className="text-gray-300 hover:text-red-500 "><Edit2 size={14} /></button><button className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button></td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
 
-                        {activeTab === 'sales' && (
-                            <div className="bg-white rounded-[1rem] shadow-sm border border-green-600 overflow-hidden">
-                                <div className="p-8 border-b border-green-600"><h3 className="font-black text-lg text-gray-800">Direct Sales Records</h3></div>
-                                <table className="w-full text-left">
-                                    <thead className="bg-gray-100 text-black text-[10px] uppercase font-black tracking-widest">
-                                        <tr>
-                                            <th className="px-8 py-6">Product</th>
-                                            <th className="px-8 py-6 text-center">Qty</th>
-                                            <th className="px-8 py-6">Total amt</th>
-                                            <th className="px-8 py-6">Method</th>
-                                            <th className="px-8 py-6">Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-50">
-                                        {sales.map(s => (
-                                            <tr key={s._id} className="hover:bg-gray-50/50">
-                                                <td className="px-8 py-6 font-black text-gray-800">{s.product?.name || 'Unknown'} <br /> <p className="px-8 py-2 text-xs text-gray-500">{s.notes}</p></td>
-
-                                                <td className="px-8 py-6 text-center font-bold text-gray-500">{s.quantity}</td>
-                                                <td className="px-8 py-6 font-black text-[#088178]">৳{s.totalAmount}</td>
-                                                <td className="px-8 py-6 text-xs font-bold text-gray-400">{s.paymentMethod}</td>
-                                                <td className="px-8 py-6 font-black text-[10px] uppercase text-green-600">{s.status}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-
-                        {activeTab === 'purchases' && (
-                            <div className="bg-white rounded-[1rem] shadow-sm border border-green-600 overflow-hidden">
-                                <div className="p-8 border-b border-green-600"><h3 className="font-black text-lg text-gray-800">Inventory Purchases</h3></div>
-                                <table className="w-full text-left">
-                                    <thead className="bg-gray-100 text-black text-[10px] uppercase font-black tracking-widest">
-                                        <tr>
-                                            <th className="px-8 py-6">Product</th>
-                                            <th className="px-8 py-6 text-center">Restocked Qty</th>
-                                            <th className="px-8 py-6">Cost Amount</th>
-                                            <th className="px-8 py-6">Date</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-50">
-                                        {purchases.map(p => (
-                                            <tr key={p._id} className="hover:bg-gray-50/50">
-                                                <td className="px-8 py-6 font-black text-gray-800">{p.product?.name || 'Unknown'}</td>
-                                                <td className="px-8 py-6 text-center font-bold text-gray-500">{p.quantity}</td>
-                                                <td className="px-8 py-6 font-black text-blue-600">৳{p.totalAmount}</td>
-                                                <td className="px-8 py-6 text-xs text-gray-400 font-bold">{new Date(p.createdAt).toLocaleDateString()}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-
-                        {activeTab === 'users' && (
-                            <div className="bg-white rounded-[2.5rem] shadow-sm border border-green-600 overflow-hidden">
-                                <div className="p-8 border-b border-green-600 flex justify-between items-center">
-                                    <h3 className="font-black text-lg text-gray-800">Users</h3>
-                                    <div className="text-xs font-bold text-[#088178] bg-teal-50 px-3 py-1 rounded-lg border border-teal-100">{users.length} Registered members</div>
+                                {/* Transactions Table */}
+                                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                                    <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                                        <h3 className="font-black text-lg text-gray-800">Transaction History</h3>
+                                        <button 
+                                            onClick={() => setIsTransactionModalOpen(true)}
+                                            className="bg-[#088178] text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-opacity-90 transition"
+                                        >
+                                            <Plus size={16} /> New Transaction
+                                        </button>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full">
+                                            <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
+                                                <tr>
+                                                    <th className="px-6 py-4 text-left">Date</th>
+                                                    <th className="px-6 py-4 text-left">Description</th>
+                                                    <th className="px-6 py-4 text-center">Type</th>
+                                                    <th className="px-6 py-4 text-center">Category</th>
+                                                    <th className="px-6 py-4 text-right">Amount</th>
+                                                    <th className="px-6 py-4 text-center">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {transactions.map(t => (
+                                                    <tr key={t._id} className="hover:bg-gray-50">
+                                                        <td className="px-6 py-4 text-sm text-gray-500">
+                                                            {new Date(t.createdAt).toLocaleDateString()}
+                                                        </td>
+                                                        <td className="px-6 py-4 font-medium text-gray-800">{t.description}</td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                                                t.type === 'Cash In' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                                            }`}>
+                                                                {t.type}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center text-sm text-gray-500">{t.category}</td>
+                                                        <td className="px-6 py-4 text-right font-bold text-gray-900">৳{t.amount}</td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                                                                t.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                                                            }`}>
+                                                                {t.status || 'completed'}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                                {transactions.length === 0 && (
+                                                    <tr>
+                                                        <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
+                                                            <Banknote size={48} className="mx-auto mb-4 text-gray-300" />
+                                                            <p className="text-lg font-medium">No transactions yet</p>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
-                                <table className="w-full text-left">
-                                    <thead className="bg-gray-100 text-black text-[10px] uppercase font-black tracking-widest">
-                                        <tr>
-                                            <th className="px-8 py-6">NAME</th>
-                                            <th className="px-8 py-6">Email/Phone</th>
-                                            <th className="px-8 py-6 text-center">Role</th>
-                                            <th className="px-8 py-6 text-right">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-300">
-                                        {users.map(u => (
-                                            <tr key={u._id} className="hover:bg-gray-100/50 group">
-                                                <td className="px-8 py-6">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center font-black text-[#088178]">{u.name.charAt(0)}</div>
+                            </div>
+                        )}
+
+                        {/* Sales Tab */}
+                        {activeTab === 'sales' && (
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                                    <h3 className="font-black text-lg text-gray-800">Sales Records</h3>
+                                    <button 
+                                        onClick={() => setIsSaleModalOpen(true)}
+                                        className="bg-[#088178] text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-opacity-90 transition"
+                                    >
+                                        <Plus size={16} /> Record Sale
+                                    </button>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
+                                            <tr>
+                                                <th className="px-6 py-4 text-left">Date</th>
+                                                <th className="px-6 py-4 text-left">Product</th>
+                                                <th className="px-6 py-4 text-center">Quantity</th>
+                                                <th className="px-6 py-4 text-right">Unit Price</th>
+                                                <th className="px-6 py-4 text-right">Total</th>
+                                                <th className="px-6 py-4 text-center">Payment</th>
+                                                <th className="px-6 py-4 text-left">Customer</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {sales.map(s => (
+                                                <tr key={s._id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4 text-sm text-gray-500">
+                                                        {new Date(s.createdAt).toLocaleDateString()}
+                                                    </td>
+                                                    <td className="px-6 py-4 font-medium text-gray-800">
+                                                        {s.product?.name || 'Unknown'}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center">{s.quantity}</td>
+                                                    <td className="px-6 py-4 text-right">৳{s.unitPrice}</td>
+                                                    <td className="px-6 py-4 text-right font-bold text-[#088178]">৳{s.totalAmount}</td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">
+                                                            {s.paymentMethod}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4">
                                                         <div>
-                                                            <div className="font-black text-gray-800 text-sm whitespace-nowrap">{u.name}</div>
-                                                            <div className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">ID: {u._id}</div>
+                                                            <div className="text-sm font-medium">{s.customerName || 'Walk-in'}</div>
+                                                            <div className="text-xs text-gray-500">{s.customerPhone || ''}</div>
                                                         </div>
-                                                    </div>
-                                                </td>
-                                                <td className="px-8 py-6">
-                                                    <div className="text-xs font-bold text-gray-600">{u.email}</div>
-                                                    <div className="text-[10px] text-gray-400">{u.phoneNumber}</div>
-                                                </td>
-                                                <td className="px-8 py-6 text-center">
-                                                    <span className={`px-3 py-1 rounded-xl text-[8px] font-black uppercase ${u.role === 'admin' ? 'bg-purple-50 text-purple-600 border border-purple-100' : 'bg-gray-50 text-gray-500 border border-gray-100'}`}>{u.role}</span>
-                                                </td>
-                                                <td className="px-8 py-6 text-right">
-                                                    <button onClick={() => { setEditingItem(u); setUserForm(u); setIsUserModalOpen(true); }} className="p-2 text-[#088178] hover:bg-green-100 rounded-lg transition-all"><Edit size={16} /></button>
-                                                    <button disabled={u._id === currentUser._id} onClick={() => handleDeleteUser(u._id)} className={`p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all ${u._id === currentUser._id ? 'opacity-20 cursor-not-allowed' : ''}`}><Trash2 size={16} /></button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {sales.length === 0 && (
+                                                <tr>
+                                                    <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
+                                                        <TrendingUp size={48} className="mx-auto mb-4 text-gray-300" />
+                                                        <p className="text-lg font-medium">No sales recorded</p>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         )}
 
-                        {activeTab === 'orders' && (
-                            <div className="bg-white rounded-[1rem] shadow-sm border border-green-600 overflow-hidden">
-                                <div className="p-8 border-b border-green-600"><h3 className="font-black text-lg text-gray-800">Online Customer Orders</h3></div>
-                                <table className="w-full text-left">
-                                    <thead className="bg-gray-100 text-black text-[10px] uppercase font-black tracking-widest">
-                                        <tr>
-                                            <th className="px-8 py-6">Transaction</th>
-                                            <th className="px-8 py-6">Lifecycle</th>
-                                            <th className="px-8 py-6 text-center">Logistics</th>
-                                            <th className="px-8 py-6 text-right">Utility</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-50">
-                                        {orders.map(o => (
-                                            <tr key={o._id} className="hover:bg-gray-50/50 transition-colors">
-                                                <td className="px-8 py-6">
-                                                    <div className="font-black text-gray-800 text-sm">৳{o.totalPrice}</div>
-                                                    <div className="text-[10px] font-bold text-gray-400">{o.items?.length || 0} Products Included</div>
-                                                </td>
-                                                <td className="px-8 py-6">
-                                                    <span className="text-[10px] font-black uppercase bg-teal-50 text-[#088178] rounded-xl px-3 py-1.5 border border-teal-100">{o.status}</span>
-                                                </td>
-                                                <td className="px-8 py-6 text-center">
-                                                    <div className="text-[10px] font-bold text-gray-400 mb-1">{o.shippingAddress?.slice(0, 20)}...</div>
-                                                    <div className={`text-[8px] font-black px-2 py-0.5 rounded-full inline-block ${o.isPaid ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>{o.isPaid ? 'PAYMENT RECEIVED' : 'UNPAID COD'}</div>
-                                                </td>
-                                                <td className="px-8 py-6 text-right">
-                                                    <button className="bg-gray-50 p-2.5 rounded-xl text-gray-400 hover:text-[#088178] transition-colors"><FileText size={18} /></button>
-                                                </td>
+                        {/* Purchases Tab */}
+                        {activeTab === 'purchases' && (
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                                    <h3 className="font-black text-lg text-gray-800">Purchase Records</h3>
+                                    <button 
+                                        onClick={() => setIsPurchaseModalOpen(true)}
+                                        className="bg-[#088178] text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-opacity-90 transition"
+                                    >
+                                        <Plus size={16} /> Add Purchase
+                                    </button>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
+                                            <tr>
+                                                <th className="px-6 py-4 text-left">Date</th>
+                                                <th className="px-6 py-4 text-left">Product</th>
+                                                <th className="px-6 py-4 text-center">Quantity</th>
+                                                <th className="px-6 py-4 text-right">Unit Price</th>
+                                                <th className="px-6 py-4 text-right">Total</th>
+                                                <th className="px-6 py-4 text-left">Supplier</th>
+                                                <th className="px-6 py-4 text-left">Notes</th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {purchases.map(p => (
+                                                <tr key={p._id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4 text-sm text-gray-500">
+                                                        {new Date(p.createdAt).toLocaleDateString()}
+                                                    </td>
+                                                    <td className="px-6 py-4 font-medium text-gray-800">
+                                                        {p.product?.name || 'Unknown'}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center">{p.quantity}</td>
+                                                    <td className="px-6 py-4 text-right">৳{p.unitPrice}</td>
+                                                    <td className="px-6 py-4 text-right font-bold text-blue-600">৳{p.totalAmount}</td>
+                                                    <td className="px-6 py-4 text-sm">{p.supplier || 'N/A'}</td>
+                                                    <td className="px-6 py-4 text-sm text-gray-500">{p.notes || '-'}</td>
+                                                </tr>
+                                            ))}
+                                            {purchases.length === 0 && (
+                                                <tr>
+                                                    <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
+                                                        <ShoppingBag size={48} className="mx-auto mb-4 text-gray-300" />
+                                                        <p className="text-lg font-medium">No purchases recorded</p>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         )}
-
                     </motion.div>
                 )}
             </div>
 
-            {/* --- Modals --- */}
+            {/* Modals */}
 
-            {/* Cash Box Modal */}
+            {/* Order Detail Modal */}
             <AnimatePresence>
-                {isTransactionModalOpen && (
-                    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setIsTransactionModalOpen(false)} />
-                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white p-8 rounded-[2.5rem] shadow-2xl relative z-10 w-full max-w-md">
-                            <h3 className="text-2xl font-black text-gray-900 mb-6">Cash Transaction</h3>
-                            <form onSubmit={handleAddTransaction} className="space-y-5">
-                                <div>
-                                    <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Type</label>
-                                    <div className="flex gap-2 p-1 bg-gray-50 rounded-2xl border border-gray-100">
-                                        {["Cash In", "Cash Out"].map(t => (
-                                            <button type="button" key={t} onClick={() => setTransactionForm({ ...transactionForm, type: t })} className={`flex-1 py-3 rounded-xl font-black text-xs transition-all ${transactionForm.type === t ? 'bg-[#088178] text-white shadow-lg' : 'text-gray-400 hover:text-gray-600'}`}>{t}</button>
-                                        ))}
+                {isOrderDetailModalOpen && selectedOrder && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }} 
+                            animate={{ opacity: 1 }} 
+                            exit={{ opacity: 0 }} 
+                            className="fixed inset-0 bg-black/60 backdrop-blur-sm" 
+                            onClick={() => setIsOrderDetailModalOpen(false)} 
+                        />
+                        <motion.div 
+                            initial={{ scale: 0.9, opacity: 0 }} 
+                            animate={{ scale: 1, opacity: 1 }} 
+                            exit={{ scale: 0.9, opacity: 0 }} 
+                            className="bg-white rounded-2xl shadow-2xl relative z-10 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+                        >
+                            <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex justify-between items-center">
+                                <h3 className="text-2xl font-black text-gray-900">Order Details</h3>
+                                <button onClick={() => setIsOrderDetailModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-6">
+                                {/* Order Info */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-gray-50 p-4 rounded-xl">
+                                        <p className="text-xs text-gray-500 mb-1">Order Number</p>
+                                        <p className="font-mono font-bold">{selectedOrder.orderNumber}</p>
+                                    </div>
+                                    <div className="bg-gray-50 p-4 rounded-xl">
+                                        <p className="text-xs text-gray-500 mb-1">Order Date</p>
+                                        <p className="font-bold">{new Date(selectedOrder.createdAt).toLocaleString()}</p>
+                                    </div>
+                                    <div className="bg-gray-50 p-4 rounded-xl">
+                                        <p className="text-xs text-gray-500 mb-1">Status</p>
+                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusColor(selectedOrder.status)}`}>
+                                            {selectedOrder.status}
+                                        </span>
+                                    </div>
+                                    <div className="bg-gray-50 p-4 rounded-xl">
+                                        <p className="text-xs text-gray-500 mb-1">Payment</p>
+                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${selectedOrder.isPaid ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                            {selectedOrder.isPaid ? 'Paid' : 'Unpaid'}
+                                        </span>
                                     </div>
                                 </div>
+
+                                {/* Customer Info */}
+                                <div className="border border-gray-200 rounded-xl p-4">
+                                    <h4 className="font-bold text-gray-800 mb-3">Customer Information</h4>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <p className="text-xs text-gray-500">Name</p>
+                                            <p className="font-medium">{selectedOrder.user?.name}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-gray-500">Email</p>
+                                            <p className="font-medium">{selectedOrder.user?.email}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-gray-500">Phone</p>
+                                            <p className="font-medium">{selectedOrder.shippingAddress?.phoneNumber}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Shipping Address */}
+                                <div className="border border-gray-200 rounded-xl p-4">
+                                    <h4 className="font-bold text-gray-800 mb-3">Shipping Address</h4>
+                                    <p className="text-sm">
+                                        {selectedOrder.shippingAddress?.fullName}<br />
+                                        {selectedOrder.shippingAddress?.addressLine1}<br />
+                                        {selectedOrder.shippingAddress?.addressLine2 && <>{selectedOrder.shippingAddress.addressLine2}<br /></>}
+                                        {selectedOrder.shippingAddress?.city}, {selectedOrder.shippingAddress?.postalCode}<br />
+                                        {selectedOrder.shippingAddress?.country}
+                                    </p>
+                                </div>
+
+                                {/* Order Items */}
+                                <div className="border border-gray-200 rounded-xl p-4">
+                                    <h4 className="font-bold text-gray-800 mb-3">Order Items</h4>
+                                    <table className="w-full">
+                                        <thead className="text-xs text-gray-500">
+                                            <tr>
+                                                <th className="text-left py-2">Product</th>
+                                                <th className="text-center py-2">Qty</th>
+                                                <th className="text-right py-2">Price</th>
+                                                <th className="text-right py-2">Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {selectedOrder.items?.map((item, idx) => (
+                                                <tr key={idx}>
+                                                    <td className="py-2 font-medium">{item.name}</td>
+                                                    <td className="py-2 text-center">{item.quantity}</td>
+                                                    <td className="py-2 text-right">৳{item.price}</td>
+                                                    <td className="py-2 text-right font-bold">৳{item.price * item.quantity}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                        <tfoot className="border-t border-gray-200">
+                                            <tr>
+                                                <td colSpan="3" className="pt-3 text-right font-bold">Subtotal:</td>
+                                                <td className="pt-3 text-right font-bold">৳{selectedOrder.subtotal}</td>
+                                            </tr>
+                                            <tr>
+                                                <td colSpan="3" className="text-right">Shipping:</td>
+                                                <td className="text-right">৳{selectedOrder.shippingCost || 0}</td>
+                                            </tr>
+                                            <tr>
+                                                <td colSpan="3" className="text-right">VAT:</td>
+                                                <td className="text-right">৳{selectedOrder.vat || 0}</td>
+                                            </tr>
+                                            <tr>
+                                                <td colSpan="3" className="text-right font-black">Total:</td>
+                                                <td className="text-right font-black text-[#088178]">৳{selectedOrder.totalPrice}</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Edit Order Modal */}
+            <AnimatePresence>
+                {isEditOrderModalOpen && selectedOrder && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }} 
+                            animate={{ opacity: 1 }} 
+                            exit={{ opacity: 0 }} 
+                            className="fixed inset-0 bg-black/60 backdrop-blur-sm" 
+                            onClick={() => setIsEditOrderModalOpen(false)} 
+                        />
+                        <motion.div 
+                            initial={{ scale: 0.9, opacity: 0 }} 
+                            animate={{ scale: 1, opacity: 1 }} 
+                            exit={{ scale: 0.9, opacity: 0 }} 
+                            className="bg-white rounded-2xl shadow-2xl relative z-10 w-full max-w-md"
+                        >
+                            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                                <h3 className="text-xl font-black text-gray-900">Update Order #{selectedOrder.orderNumber}</h3>
+                                <button onClick={() => setIsEditOrderModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <form onSubmit={handleUpdateOrder} className="p-6 space-y-4">
                                 <div>
-                                    <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Amount (৳)</label>
-                                    <input required type="number" value={transactionForm.amount} onChange={e => setTransactionForm({ ...transactionForm, amount: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-lg focus:ring-2 focus:ring-[#088178]" placeholder="0.00" />
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Status</label>
+                                    <select 
+                                        value={orderUpdateForm.status} 
+                                        onChange={(e) => setOrderUpdateForm({...orderUpdateForm, status: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    >
+                                        <option value="pending">Pending</option>
+                                        <option value="confirmed">Confirmed</option>
+                                        <option value="processing">Processing</option>
+                                        <option value="shipped">Shipped</option>
+                                        <option value="delivered">Delivered</option>
+                                        <option value="cancelled">Cancelled</option>
+                                    </select>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Description</label>
-                                    <textarea required value={transactionForm.description} onChange={e => setTransactionForm({ ...transactionForm, description: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" rows="3" placeholder="Note detail..."></textarea>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Payment Status</label>
+                                    <select 
+                                        value={orderUpdateForm.paymentStatus} 
+                                        onChange={(e) => setOrderUpdateForm({...orderUpdateForm, paymentStatus: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    >
+                                        <option value="pending">Pending</option>
+                                        <option value="paid">Paid</option>
+                                        <option value="failed">Failed</option>
+                                        <option value="refunded">Refunded</option>
+                                    </select>
                                 </div>
-                                <button type="submit" className="w-full bg-[#088178] text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-teal-900/20 hover:scale-[1.02] transition-all">Capture Transaction</button>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Tracking Number</label>
+                                    <input 
+                                        type="text" 
+                                        value={orderUpdateForm.trackingNumber} 
+                                        onChange={(e) => setOrderUpdateForm({...orderUpdateForm, trackingNumber: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Courier</label>
+                                    <input 
+                                        type="text" 
+                                        value={orderUpdateForm.courier} 
+                                        onChange={(e) => setOrderUpdateForm({...orderUpdateForm, courier: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Admin Notes</label>
+                                    <textarea 
+                                        value={orderUpdateForm.adminNotes} 
+                                        onChange={(e) => setOrderUpdateForm({...orderUpdateForm, adminNotes: e.target.value})}
+                                        rows="3"
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    />
+                                </div>
+                                <button 
+                                    type="submit" 
+                                    className="w-full bg-[#088178] text-white py-3 rounded-lg font-bold hover:bg-opacity-90 transition"
+                                >
+                                    Update Order
+                                </button>
                             </form>
                         </motion.div>
                     </div>
@@ -757,67 +1705,260 @@ const handleProductSubmit = async (e) => {
             {/* Product Modal */}
             <AnimatePresence>
                 {isProductModalOpen && (
-                    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setIsProductModalOpen(false)} />
-                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white p-10 rounded-[3rem] shadow-2xl relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto custom-scroll">
-                            <div className="flex justify-between items-center mb-8">
-                                <h3 className="text-3xl font-black text-gray-900 leading-tight">{editingItem ? 'Edit Asset' : 'New Inventory'}</h3>
-                                <button onClick={() => setIsProductModalOpen(false)} className="bg-gray-50 p-2.5 rounded-xl text-gray-400 hover:text-red-500 transition-colors"><X size={20} /></button>
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }} 
+                            animate={{ opacity: 1 }} 
+                            exit={{ opacity: 0 }} 
+                            className="fixed inset-0 bg-black/60 backdrop-blur-sm" 
+                            onClick={() => setIsProductModalOpen(false)} 
+                        />
+                        <motion.div 
+                            initial={{ scale: 0.9, opacity: 0 }} 
+                            animate={{ scale: 1, opacity: 1 }} 
+                            exit={{ scale: 0.9, opacity: 0 }} 
+                            className="bg-white rounded-2xl shadow-2xl relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+                        >
+                            <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex justify-between items-center">
+                                <h3 className="text-2xl font-black text-gray-900">
+                                    {editingItem ? 'Edit Product' : 'Add New Product'}
+                                </h3>
+                                <button onClick={() => setIsProductModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                                    <X size={20} />
+                                </button>
                             </div>
-                            <form onSubmit={handleProductSubmit} className="space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="col-span-full">
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Product Information</label>
-                                        <input required type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" placeholder="Formal name of product..." />
+                            <form onSubmit={handleProductSubmit} className="p-6 space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Product Name *</label>
+                                        <input 
+                                            type="text" 
+                                            required
+                                            value={productForm.name} 
+                                            onChange={(e) => setProductForm({...productForm, name: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                            placeholder="Enter product name"
+                                        />
                                     </div>
                                     <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Purchase Price (৳)</label>
-                                        <input required type="number" value={productForm.purchasePrice} onChange={(e) => setProductForm({ ...productForm, purchasePrice: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" placeholder="0.00" />
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Purchase Price *</label>
+                                        <input 
+                                            type="number" 
+                                            required
+                                            min="0"
+                                            value={productForm.purchasePrice} 
+                                            onChange={(e) => setProductForm({...productForm, purchasePrice: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                            placeholder="0.00"
+                                        />
                                     </div>
                                     <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Selling Price (৳)</label>
-                                        <input required type="number" value={productForm.sellingPrice} onChange={(e) => setProductForm({ ...productForm, sellingPrice: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" placeholder="0.00" />
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Selling Price *</label>
+                                        <input 
+                                            type="number" 
+                                            required
+                                            min="0"
+                                            value={productForm.sellingPrice} 
+                                            onChange={(e) => setProductForm({...productForm, sellingPrice: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                            placeholder="0.00"
+                                        />
                                     </div>
                                     <div>
-                                        <label className="text-[10px) font-black uppercase text-gray-400 block mb-2 tracking-widest">Inventory Unit</label>
-                                        <select value={productForm.unit} onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]">
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Category *</label>
+                                        <input 
+                                            type="text" 
+                                            required
+                                            value={productForm.category} 
+                                            onChange={(e) => setProductForm({...productForm, category: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                            placeholder="e.g., Electronics, Clothing"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Brand</label>
+                                        <input 
+                                            type="text" 
+                                            value={productForm.brand} 
+                                            onChange={(e) => setProductForm({...productForm, brand: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                            placeholder="Brand name"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">SKU</label>
+                                        <input 
+                                            type="text" 
+                                            value={productForm.sku} 
+                                            onChange={(e) => setProductForm({...productForm, sku: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                            placeholder="Stock keeping unit"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Stock Quantity *</label>
+                                        <input 
+                                            type="number" 
+                                            required
+                                            min="0"
+                                            value={productForm.stock} 
+                                            onChange={(e) => setProductForm({...productForm, stock: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                            placeholder="0"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Unit</label>
+                                        <select 
+                                            value={productForm.unit} 
+                                            onChange={(e) => setProductForm({...productForm, unit: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        >
                                             <option value="পিস">পিস</option>
-                                            <option value="পিয়ার">পিয়ার</option>
-                                            <option value="হালি">হালি</option>
+                                            <option value="কেজি">কেজি</option>
+                                            <option value="লিটার">লিটার</option>
                                             <option value="ডজন">ডজন</option>
                                             <option value="প্যাকেট">প্যাকেট</option>
-                                            <option value="কেজি">কেজি</option>
-                                            <option value="মিলিলিটার">মিলিলিটার</option>
-                                            <option value="লিটার">লিটার</option>
                                         </select>
                                     </div>
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Opening Stock</label>
-                                        <input required type="number" value={productForm.stock} onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" placeholder="0" />
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Image URL *</label>
+                                        <input 
+                                            type="url" 
+                                            required
+                                            value={productForm.image} 
+                                            onChange={(e) => setProductForm({...productForm, image: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                            placeholder="https://example.com/image.jpg"
+                                        />
                                     </div>
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Asset Category</label>
-                                        <input required type="text" value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" placeholder="Wearables, Shoes..." />
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Description *</label>
+                                        <textarea 
+                                            required
+                                            value={productForm.description} 
+                                            onChange={(e) => setProductForm({...productForm, description: e.target.value})}
+                                            rows="4"
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                            placeholder="Product description..."
+                                        />
                                     </div>
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Visual Asset (URL)</label>
-                                        <input required type="text" value={productForm.image} onChange={(e) => setProductForm({ ...productForm, image: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" placeholder="Image link..." />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Live Status</label>
-                                        <select value={productForm.liveStatus || 'live'} onChange={(e) => setProductForm({ ...productForm, liveStatus: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]">
-                                            <option value="live">🟢 Live for customer</option>
-                                            <option value="issue">🟡 Any issue</option>
-                                            <option value="not-available">🔴 Not available (Inventory only)</option>
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Status</label>
+                                        <select 
+                                            value={productForm.liveStatus} 
+                                            onChange={(e) => setProductForm({...productForm, liveStatus: e.target.value})}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        >
+                                            <option value="live">Live (Visible to customers)</option>
+                                            <option value="draft">Draft (Hidden)</option>
+                                            <option value="archived">Archived</option>
                                         </select>
-                                    </div>
-                                    <div className="col-span-full">
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Detail Description</label>
-                                        <textarea required value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" rows="3"></textarea>
                                     </div>
                                 </div>
-                                <button type="submit" className="w-full bg-[#088178] text-white py-5 rounded-[1.5rem] font-black text-sm shadow-2xl shadow-teal-900/30 hover:scale-[1.01] transition-all flex items-center justify-center gap-3 mt-4">
-                                    <CheckCircle size={20} /> {editingItem ? 'Finalize Asset Updates' : 'Commit New Inventory'}
+                                <button 
+                                    type="submit" 
+                                    className="w-full bg-[#088178] text-white py-3 rounded-lg font-bold hover:bg-opacity-90 transition mt-4"
+                                >
+                                    {editingItem ? 'Update Product' : 'Create Product'}
+                                </button>
+                            </form>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Transaction Modal */}
+            <AnimatePresence>
+                {isTransactionModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }} 
+                            animate={{ opacity: 1 }} 
+                            exit={{ opacity: 0 }} 
+                            className="fixed inset-0 bg-black/60 backdrop-blur-sm" 
+                            onClick={() => setIsTransactionModalOpen(false)} 
+                        />
+                        <motion.div 
+                            initial={{ scale: 0.9, opacity: 0 }} 
+                            animate={{ scale: 1, opacity: 1 }} 
+                            exit={{ scale: 0.9, opacity: 0 }} 
+                            className="bg-white rounded-2xl shadow-2xl relative z-10 w-full max-w-md"
+                        >
+                            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                                <h3 className="text-xl font-black text-gray-900">Add Transaction</h3>
+                                <button onClick={() => setIsTransactionModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <form onSubmit={handleAddTransaction} className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Transaction Type</label>
+                                    <select 
+                                        value={transactionForm.type} 
+                                        onChange={(e) => setTransactionForm({...transactionForm, type: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    >
+                                        <option value="Cash In">Cash In (Income)</option>
+                                        <option value="Cash Out">Cash Out (Expense)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Category</label>
+                                    <select 
+                                        value={transactionForm.category} 
+                                        onChange={(e) => setTransactionForm({...transactionForm, category: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    >
+                                        <option value="sales">Sales</option>
+                                        <option value="purchases">Purchases</option>
+                                        <option value="expenses">Expenses</option>
+                                        <option value="withdrawals">Withdrawals</option>
+                                        <option value="others">Others</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Amount (৳) *</label>
+                                    <input 
+                                        type="number" 
+                                        required
+                                        min="1"
+                                        value={transactionForm.amount} 
+                                        onChange={(e) => setTransactionForm({...transactionForm, amount: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Payment Method</label>
+                                    <select 
+                                        value={transactionForm.paymentMethod} 
+                                        onChange={(e) => setTransactionForm({...transactionForm, paymentMethod: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    >
+                                        <option value="Cash">Cash</option>
+                                        <option value="Bank">Bank Transfer</option>
+                                        <option value="bkash">bKash</option>
+                                        <option value="nagad">Nagad</option>
+                                        <option value="Card">Card</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Description *</label>
+                                    <textarea 
+                                        required
+                                        value={transactionForm.description} 
+                                        onChange={(e) => setTransactionForm({...transactionForm, description: e.target.value})}
+                                        rows="3"
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        placeholder="Transaction details..."
+                                    />
+                                </div>
+                                <button 
+                                    type="submit" 
+                                    className="w-full bg-[#088178] text-white py-3 rounded-lg font-bold hover:bg-opacity-90 transition"
+                                >
+                                    Add Transaction
                                 </button>
                             </form>
                         </motion.div>
@@ -828,67 +1969,134 @@ const handleProductSubmit = async (e) => {
             {/* Sale Modal */}
             <AnimatePresence>
                 {isSaleModalOpen && (
-                    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setIsSaleModalOpen(false)} />
-                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white p-8 rounded-[1rem] shadow-2xl relative z-10 w-full max-w-md">
-                            <h3 className="text-xl font-black text-gray-900 mb-6">New Sale</h3>
-                            <form onSubmit={handleAddSale} className="space-y-5">
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }} 
+                            animate={{ opacity: 1 }} 
+                            exit={{ opacity: 0 }} 
+                            className="fixed inset-0 bg-black/60 backdrop-blur-sm" 
+                            onClick={() => setIsSaleModalOpen(false)} 
+                        />
+                        <motion.div 
+                            initial={{ scale: 0.9, opacity: 0 }} 
+                            animate={{ scale: 1, opacity: 1 }} 
+                            exit={{ scale: 0.9, opacity: 0 }} 
+                            className="bg-white rounded-2xl shadow-2xl relative z-10 w-full max-w-md"
+                        >
+                            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                                <h3 className="text-xl font-black text-gray-900">Record Sale</h3>
+                                <button onClick={() => setIsSaleModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <form onSubmit={handleAddSale} className="p-6 space-y-4">
                                 <div>
-                                    <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Select Product</label>
-                                    <select value={saleForm.product} onChange={e => {
-                                        const p = products.find(x => x._id === e.target.value);
-                                        setSaleForm({ ...saleForm, product: e.target.value, totalAmount: (p?.sellingPrice || 0) * saleForm.quantity });
-                                    }} className="w-full bg-gray-50 border-none rounded-xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" required>
-                                        <option value="">-- Choose --</option>
-                                        {products.map(p => <option key={p._id} value={p._id}>{p.name} (৳{p.sellingPrice})</option>)}
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Product *</label>
+                                    <select 
+                                        required 
+                                        value={saleForm.product} 
+                                        onChange={(e) => {
+                                            const product = products.find(p => p._id === e.target.value);
+                                            const price = product?.sellingPrice || product?.price || 0;
+                                            setSaleForm({ 
+                                                ...saleForm, 
+                                                product: e.target.value,
+                                                totalAmount: price * saleForm.quantity
+                                            });
+                                        }}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    >
+                                        <option value="">Select Product</option>
+                                        {products.map(p => (
+                                            <option key={p._id} value={p._id}>
+                                                {p.name} (৳{p.sellingPrice || p.price})
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
-                                <div className="grid grid-cols-2 gap-2">
+                                <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Quantity</label>
-                                        <input type="number" value={saleForm.quantity} onChange={e => {
-                                            const p = products.find(x => x._id === saleForm.product);
-                                            setSaleForm({ ...saleForm, quantity: e.target.value, totalAmount: (p?.sellingPrice || 0) * e.target.value });
-                                        }} className="w-full bg-gray-50 border-none rounded-xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" />
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Quantity *</label>
+                                        <input 
+                                            required 
+                                            type="number" 
+                                            min="1"
+                                            value={saleForm.quantity} 
+                                            onChange={(e) => {
+                                                const qty = parseInt(e.target.value) || 1;
+                                                const product = products.find(p => p._id === saleForm.product);
+                                                const price = product?.sellingPrice || product?.price || 0;
+                                                setSaleForm({ 
+                                                    ...saleForm, 
+                                                    quantity: qty,
+                                                    totalAmount: price * qty
+                                                });
+                                            }}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        />
                                     </div>
                                     <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Total Bill (৳)</label>
-                                        <input type="number" readOnly value={saleForm.totalAmount} className="w-full bg-teal-50 border-none rounded-xl py-4 px-6 font-black text-[#088178] text-sm outline-none" />
-                                    </div>
-                                </div>
-                                {/* // */}
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Payment Method</label>
-                                        <select name="paymentMethod" id="paymentMethod" value={saleForm.paymentMethod} onChange={e => setSaleForm({ ...saleForm, paymentMethod: e.target.value })} className="w-full bg-gray-50 border-none rounded-xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]">
-                                            <option value="">-- Select --</option>
-                                            <option value="cash">Cash</option>
-                                            <option value="card">Card</option>
-                                            <option value="online">Online</option>
-                                            <option value="due">Due</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Status</label>
-                                        <select name="status" id="status" value={saleForm.status} onChange={e => setSaleForm({ ...saleForm, status: e.target.value })} className="w-full bg-gray-50 border-none rounded-xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]">
-                                            <option value="">-- Select --</option>
-                                            <option value="ordered">Ordered</option>
-                                            <option value="pending">Pending</option>
-                                            <option value="delivered">Delivered</option>
-                                            <option value="cancelled">Cancelled</option>
-                                            <option value="returned">Returned</option>
-                                        </select>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Total Amount *</label>
+                                        <input 
+                                            required 
+                                            type="number" 
+                                            min="0"
+                                            value={saleForm.totalAmount} 
+                                            onChange={(e) => setSaleForm({ ...saleForm, totalAmount: e.target.value })}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        />
                                     </div>
                                 </div>
-                                {/* // */}
-                                <div className="grid">
-                                    <div>
-                                        {/* <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Additional Notes</label> */}
-                                        <textarea id="notes" value={saleForm.notes} onChange={e => setSaleForm({ ...saleForm, notes: e.target.value })} className="w-full bg-gray-50 border-none rounded-xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" rows="3" placeholder="Any extra details...">
-                                        </textarea>
-                                    </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Payment Method</label>
+                                    <select 
+                                        value={saleForm.paymentMethod} 
+                                        onChange={(e) => setSaleForm({ ...saleForm, paymentMethod: e.target.value })}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    >
+                                        <option value="Cash">Cash</option>
+                                        <option value="Card">Card</option>
+                                        <option value="bkash">bKash</option>
+                                        <option value="nagad">Nagad</option>
+                                        <option value="Bank">Bank Transfer</option>
+                                    </select>
                                 </div>
-                                <button type="submit" className="w-full bg-[#088178] text-white py-4 rounded-xl font-black text-sm shadow-xl shadow-teal-900/20 hover:scale-[1.02] transition-all">Confirm Sale</button>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Customer Name</label>
+                                    <input 
+                                        type="text" 
+                                        value={saleForm.customerName} 
+                                        onChange={(e) => setSaleForm({ ...saleForm, customerName: e.target.value })}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        placeholder="Customer name"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Customer Phone</label>
+                                    <input 
+                                        type="text" 
+                                        value={saleForm.customerPhone} 
+                                        onChange={(e) => setSaleForm({ ...saleForm, customerPhone: e.target.value })}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        placeholder="Customer phone"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Notes</label>
+                                    <textarea 
+                                        value={saleForm.description} 
+                                        onChange={(e) => setSaleForm({ ...saleForm, description: e.target.value })}
+                                        rows="2"
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        placeholder="Additional notes..."
+                                    />
+                                </div>
+                                <button 
+                                    type="submit" 
+                                    className="w-full bg-[#088178] text-white py-3 rounded-lg font-bold hover:bg-opacity-90 transition"
+                                >
+                                    Record Sale
+                                </button>
                             </form>
                         </motion.div>
                     </div>
@@ -898,35 +2106,110 @@ const handleProductSubmit = async (e) => {
             {/* Purchase Modal */}
             <AnimatePresence>
                 {isPurchaseModalOpen && (
-                    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setIsPurchaseModalOpen(false)} />
-                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white p-8 rounded-[2.5rem] shadow-2xl relative z-10 w-full max-w-md">
-                            <h3 className="text-2xl font-black text-gray-900 mb-6">Restock Inventory</h3>
-                            <form onSubmit={handleAddPurchase} className="space-y-5">
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }} 
+                            animate={{ opacity: 1 }} 
+                            exit={{ opacity: 0 }} 
+                            className="fixed inset-0 bg-black/60 backdrop-blur-sm" 
+                            onClick={() => setIsPurchaseModalOpen(false)} 
+                        />
+                        <motion.div 
+                            initial={{ scale: 0.9, opacity: 0 }} 
+                            animate={{ scale: 1, opacity: 1 }} 
+                            exit={{ scale: 0.9, opacity: 0 }} 
+                            className="bg-white rounded-2xl shadow-2xl relative z-10 w-full max-w-md"
+                        >
+                            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                                <h3 className="text-xl font-black text-gray-900">Add Purchase</h3>
+                                <button onClick={() => setIsPurchaseModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <form onSubmit={handleAddPurchase} className="p-6 space-y-4">
                                 <div>
-                                    <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Select Product</label>
-                                    <select value={purchaseForm.product} onChange={e => {
-                                        const p = products.find(x => x._id === e.target.value);
-                                        setPurchaseForm({ ...purchaseForm, product: e.target.value, totalAmount: (p?.purchasePrice || 0) * purchaseForm.quantity });
-                                    }} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" required>
-                                        <option value="">-- Choose --</option>
-                                        {products.map(p => <option key={p._id} value={p._id}>{p.name} (৳{p.purchasePrice})</option>)}
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Product *</label>
+                                    <select 
+                                        required 
+                                        value={purchaseForm.product} 
+                                        onChange={(e) => {
+                                            const product = products.find(p => p._id === e.target.value);
+                                            const price = product?.purchasePrice || 0;
+                                            setPurchaseForm({ 
+                                                ...purchaseForm, 
+                                                product: e.target.value,
+                                                totalAmount: price * purchaseForm.quantity
+                                            });
+                                        }}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    >
+                                        <option value="">Select Product</option>
+                                        {products.map(p => (
+                                            <option key={p._id} value={p._id}>
+                                                {p.name} (Purchase: ৳{p.purchasePrice})
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Quantity</label>
-                                        <input type="number" value={purchaseForm.quantity} onChange={e => {
-                                            const p = products.find(x => x._id === purchaseForm.product);
-                                            setPurchaseForm({ ...purchaseForm, quantity: e.target.value, totalAmount: (p?.purchasePrice || 0) * e.target.value });
-                                        }} className="w-full bg-gray-50 border-none rounded-2xl py-4 px-6 font-bold text-sm focus:ring-2 focus:ring-[#088178]" />
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Quantity *</label>
+                                        <input 
+                                            required 
+                                            type="number" 
+                                            min="1"
+                                            value={purchaseForm.quantity} 
+                                            onChange={(e) => {
+                                                const qty = parseInt(e.target.value) || 1;
+                                                const product = products.find(p => p._id === purchaseForm.product);
+                                                const price = product?.purchasePrice || 0;
+                                                setPurchaseForm({ 
+                                                    ...purchaseForm, 
+                                                    quantity: qty,
+                                                    totalAmount: price * qty
+                                                });
+                                            }}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        />
                                     </div>
                                     <div>
-                                        <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Cost Bill (৳)</label>
-                                        <input type="number" readOnly value={purchaseForm.totalAmount} className="w-full bg-orange-50 border-none rounded-2xl py-4 px-6 font-black text-orange-600 text-sm outline-none" />
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Total Cost *</label>
+                                        <input 
+                                            required 
+                                            type="number" 
+                                            min="0"
+                                            value={purchaseForm.totalAmount} 
+                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, totalAmount: e.target.value })}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        />
                                     </div>
                                 </div>
-                                <button type="submit" className="w-full bg-[#041e42] text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-blue-900/20 hover:scale-[1.02] transition-all">Record Purchase</button>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Supplier</label>
+                                    <input 
+                                        type="text" 
+                                        value={purchaseForm.supplier} 
+                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, supplier: e.target.value })}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        placeholder="Supplier name"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Description</label>
+                                    <textarea 
+                                        value={purchaseForm.description} 
+                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, description: e.target.value })}
+                                        rows="2"
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                        placeholder="Purchase notes..."
+                                    />
+                                </div>
+                                <button 
+                                    type="submit" 
+                                    className="w-full bg-[#088178] text-white py-3 rounded-lg font-bold hover:bg-opacity-90 transition"
+                                >
+                                    Record Purchase
+                                </button>
                             </form>
                         </motion.div>
                     </div>
@@ -935,52 +2218,110 @@ const handleProductSubmit = async (e) => {
 
             {/* User Edit Modal */}
             <AnimatePresence>
-                {isUserModalOpen && (
-                    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-md" onClick={() => setIsUserModalOpen(false)} />
-                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white p-8 rounded-[2.5rem] shadow-2xl relative z-10 w-full max-w-md">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-2xl font-black text-gray-900">Edit User Details</h3>
-                                <button onClick={() => setIsUserModalOpen(false)} className="bg-gray-50 p-2.5 rounded-xl text-gray-400 hover:text-red-500 transition-colors"><X size={20} /></button>
+                {isUserModalOpen && editingItem && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }} 
+                            animate={{ opacity: 1 }} 
+                            exit={{ opacity: 0 }} 
+                            className="fixed inset-0 bg-black/60 backdrop-blur-sm" 
+                            onClick={() => setIsUserModalOpen(false)} 
+                        />
+                        <motion.div 
+                            initial={{ scale: 0.9, opacity: 0 }} 
+                            animate={{ scale: 1, opacity: 1 }} 
+                            exit={{ scale: 0.9, opacity: 0 }} 
+                            className="bg-white rounded-2xl shadow-2xl relative z-10 w-full max-w-md"
+                        >
+                            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                                <h3 className="text-xl font-black text-gray-900">Edit User</h3>
+                                <button onClick={() => setIsUserModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                                    <X size={20} />
+                                </button>
                             </div>
-                            <form onSubmit={handleUserSubmit} className="space-y-4">
+                            <form onSubmit={handleUserSubmit} className="p-6 space-y-4">
                                 <div>
-                                    <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Full Name</label>
-                                    <input required type="text" value={userForm.name} onChange={e => setUserForm({ ...userForm, name: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-3 px-5 font-bold text-sm focus:ring-2 focus:ring-[#088178]" />
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Name *</label>
+                                    <input 
+                                        type="text" 
+                                        required
+                                        value={userForm.name} 
+                                        onChange={(e) => setUserForm({...userForm, name: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Email Address</label>
-                                    <input required type="email" value={userForm.email} onChange={e => setUserForm({ ...userForm, email: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-3 px-5 font-bold text-sm focus:ring-2 focus:ring-[#088178]" />
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Email *</label>
+                                    <input 
+                                        type="email" 
+                                        required
+                                        value={userForm.email} 
+                                        onChange={(e) => setUserForm({...userForm, email: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Phone Number</label>
-                                    <input required type="text" value={userForm.phoneNumber} onChange={e => setUserForm({ ...userForm, phoneNumber: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-3 px-5 font-bold text-sm focus:ring-2 focus:ring-[#088178]" />
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Phone Number</label>
+                                    <input 
+                                        type="text" 
+                                        value={userForm.phoneNumber} 
+                                        onChange={(e) => setUserForm({...userForm, phoneNumber: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Role</label>
-                                    <select value={userForm.role} onChange={e => setUserForm({ ...userForm, role: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-3 px-5 font-bold text-sm focus:ring-2 focus:ring-[#088178]">
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Address</label>
+                                    <textarea 
+                                        value={userForm.address} 
+                                        onChange={(e) => setUserForm({...userForm, address: e.target.value})}
+                                        rows="2"
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Role</label>
+                                    <select 
+                                        value={userForm.role} 
+                                        onChange={(e) => setUserForm({...userForm, role: e.target.value})}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#088178] outline-none"
+                                    >
                                         <option value="user">User</option>
                                         <option value="seller">Seller</option>
                                         <option value="admin">Admin</option>
                                         <option value="courier">Courier</option>
                                     </select>
                                 </div>
-                                {userForm.role === 'seller' && (
-                                    <>
-                                        <div>
-                                            <label className="text-[10px] font-black uppercase text-gray-400 block mb-1 tracking-widest">Shop Name</label>
-                                            <input type="text" value={userForm.shopName || ''} onChange={e => setUserForm({ ...userForm, shopName: e.target.value })} className="w-full bg-gray-50 border-none rounded-2xl py-3 px-5 font-bold text-sm focus:ring-2 focus:ring-[#088178]" />
-                                        </div>
-                                    </>
-                                )}
-                                <button type="submit" className="w-full bg-[#088178] text-white py-4 mt-2 rounded-2xl font-black text-sm shadow-xl shadow-teal-900/20 hover:scale-[1.02] transition-all">Save Changes</button>
+                                <div className="flex items-center gap-4">
+                                    <label className="flex items-center gap-2">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={userForm.isActive} 
+                                            onChange={(e) => setUserForm({...userForm, isActive: e.target.checked})}
+                                            className="w-4 h-4 text-[#088178]"
+                                        />
+                                        <span className="text-sm">Active</span>
+                                    </label>
+                                    <label className="flex items-center gap-2">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={userForm.isVerified} 
+                                            onChange={(e) => setUserForm({...userForm, isVerified: e.target.checked})}
+                                            className="w-4 h-4 text-[#088178]"
+                                        />
+                                        <span className="text-sm">Verified</span>
+                                    </label>
+                                </div>
+                                <button 
+                                    type="submit" 
+                                    className="w-full bg-[#088178] text-white py-3 rounded-lg font-bold hover:bg-opacity-90 transition"
+                                >
+                                    Update User
+                                </button>
                             </form>
                         </motion.div>
                     </div>
                 )}
             </AnimatePresence>
-
-
         </div>
     );
 };

@@ -71,12 +71,12 @@ const startServer = async () => {
 
     // ==================== ROUTES ====================
     // API Routes
-    app.use('/api/auth', authRoutes);
-    app.use('/api/users', userRoutes);
-    app.use('/api/products', productRoutes);
-    app.use('/api/orders', orderRoutes);
-    app.use('/api/admin', adminRoutes);
-    app.use('/api/seller', sellerRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/seller', sellerRoutes);
 
     // Test route
     app.get('/api/test', (req, res) => {

@@ -4,15 +4,196 @@ const Order = require('../models/Order');
 const Sale = require('../models/Sale');
 const Purchase = require('../models/Purchase');
 const Transaction = require('../models/Transaction');
-const { validationResult } = require('express-validator');
+
+// @desc    Get seller dashboard stats
+// @route   GET /api/seller/stats
+// @access  Private/Seller
+const getSellerStats = async (req, res) => {
+  try {
+    const sellerId = req.user.id;
+    const { startDate, endDate } = req.query;
+
+    // Date range
+    const start = startDate ? new Date(startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
+    const end = endDate ? new Date(endDate) : new Date();
+
+    // Parallel queries
+    const [
+      totalProducts,
+      totalOrders,
+      totalSales,
+      totalEarnings,
+      recentOrders,
+      lowStockProducts,
+      pendingOrders,
+      salesChart
+    ] = await Promise.all([
+      // Total products
+      Product.countDocuments({ user: sellerId, liveStatus: { $ne: 'archived' } }),
+      
+      // Total orders (containing seller's products)
+      Order.countDocuments({ 
+        'sellers.sellerId': sellerId,
+        createdAt: { $gte: start, $lte: end }
+      }),
+      
+      // Total sales amount
+      Order.aggregate([
+        { $match: { 
+            'sellers.sellerId': sellerId,
+            status: 'delivered',
+            createdAt: { $gte: start, $lte: end }
+          }},
+        { $unwind: '$sellers' },
+        { $match: { 'sellers.sellerId': sellerId } },
+        { $group: { _id: null, total: { $sum: '$sellers.subtotal' } } }
+      ]),
+      
+      // Total earnings (after commission)
+      Order.aggregate([
+        { $match: { 
+            'sellers.sellerId': sellerId,
+            status: 'delivered',
+            createdAt: { $gte: start, $lte: end }
+          }},
+        { $unwind: '$sellers' },
+        { $match: { 'sellers.sellerId': sellerId } },
+        { $group: { _id: null, total: { $sum: '$sellers.sellerEarnings' } } }
+      ]),
+      
+      // Recent orders
+      Order.find({ 'sellers.sellerId': sellerId })
+        .populate('user', 'name email')
+        .sort({ createdAt: -1 })
+        .limit(10),
+      
+      // Low stock products
+      Product.find({
+        user: sellerId,
+        $expr: { $lte: ['$stock', '$lowStockThreshold'] },
+        liveStatus: { $ne: 'archived' }
+      }).limit(20),
+      
+      // Pending orders count
+      Order.countDocuments({ 
+        'sellers.sellerId': sellerId,
+        status: 'pending'
+      }),
+      
+      // Daily sales for chart
+      Order.aggregate([
+        { $match: { 
+            'sellers.sellerId': sellerId,
+            status: 'delivered',
+            createdAt: { $gte: start, $lte: end }
+          }},
+        { $unwind: '$sellers' },
+        { $match: { 'sellers.sellerId': sellerId } },
+        { $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            sales: { $sum: '$sellers.sellerEarnings' },
+            orders: { $sum: 1 }
+          }},
+        { $sort: { _id: 1 } }
+      ])
+    ]);
+
+    // Calculate totals
+    const totalSalesAmount = totalSales.length > 0 ? totalSales[0].total : 0;
+    const totalEarningsAmount = totalEarnings.length > 0 ? totalEarnings[0].total : 0;
+
+    // Get top products
+    const topProducts = await Order.aggregate([
+      { $match: { 'sellers.sellerId': sellerId, status: 'delivered' } },
+      { $unwind: '$items' },
+      { $match: { 'items.seller': sellerId } },
+      { $group: {
+          _id: '$items.product',
+          totalSold: { $sum: '$items.quantity' },
+          totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
+        }},
+      { $sort: { totalSold: -1 } },
+      { $limit: 10 },
+      { $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'product'
+        }},
+      { $unwind: '$product' }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      stats: {
+        overview: {
+          totalProducts,
+          totalOrders,
+          totalSales: totalSalesAmount,
+          totalEarnings: totalEarningsAmount,
+          pendingOrders,
+          lowStockCount: lowStockProducts.length
+        },
+        recentOrders,
+        lowStockProducts,
+        topProducts,
+        salesChart
+      }
+    });
+  } catch (error) {
+    console.error('Seller stats error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch seller stats' 
+    });
+  }
+};
+
+// @desc    Get seller products
+// @route   GET /api/seller/products
+// @access  Private/Seller
+const getSellerProducts = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status } = req.query;
+
+    let query = { user: req.user.id };
+    if (status) query.liveStatus = status;
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    const products = await Product.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    const total = await Product.countDocuments(query);
+
+    return res.status(200).json({
+      success: true,
+      products,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
+  } catch (error) {
+    console.error('Get seller products error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch products' 
+    });
+  }
+};
 
 // @desc    Create seller product
 // @route   POST /api/seller/products
 // @access  Private/Seller
-exports.createSellerProduct = async (req, res) => {
+const createSellerProduct = async (req, res) => {
   try {
-    console.log('📦 Seller create product request:', req.body);
-    
     const { 
       name, 
       description, 
@@ -27,45 +208,10 @@ exports.createSellerProduct = async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!name) {
+    if (!name || !description || !sellingPrice || !purchasePrice || !category || !image) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Product name is required' 
-      });
-    }
-
-    if (!description) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Description is required' 
-      });
-    }
-
-    if (!sellingPrice) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Selling price is required' 
-      });
-    }
-
-    if (!purchasePrice) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Purchase price is required' 
-      });
-    }
-
-    if (!category) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Category is required' 
-      });
-    }
-
-    if (!image) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Product image is required' 
+        message: 'Please provide all required fields' 
       });
     }
 
@@ -100,68 +246,25 @@ exports.createSellerProduct = async (req, res) => {
       productData.sku = String(sku).trim();
     }
 
-    console.log('Creating seller product with data:', productData);
     const product = await Product.create(productData);
 
-    console.log('✅ Seller product created successfully:', product._id);
-
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: 'Product created successfully',
       product
     });
   } catch (error) {
-    console.error('❌ Create seller product error:', error);
+    console.error('Create seller product error:', error);
     if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(val => val.message);
-      return res.status(400).json({ 
-        success: false, 
-        message: messages.join(', ') 
-      });
+        const messages = Object.values(error.errors).map(val => val.message);
+        return res.status(400).json({ 
+          success: false, 
+          message: messages.join(', ') 
+        });
     }
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: error.message || 'Failed to create product' 
-    });
-  }
-};
-
-// @desc    Get seller products
-// @route   GET /api/seller/products
-// @access  Private/Seller
-exports.getSellerProducts = async (req, res) => {
-  try {
-    const { page = 1, limit = 20, status } = req.query;
-
-    let query = { user: req.user.id };
-    if (status) query.liveStatus = status;
-
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const skip = (pageNum - 1) * limitNum;
-
-    const products = await Product.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum);
-
-    const total = await Product.countDocuments(query);
-
-    res.status(200).json({
-      success: true,
-      products,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum)
-      }
-    });
-  } catch (error) {
-    console.error('Get seller products error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch products' 
     });
   }
 };
@@ -169,7 +272,7 @@ exports.getSellerProducts = async (req, res) => {
 // @desc    Update seller product
 // @route   PUT /api/seller/products/:id
 // @access  Private/Seller
-exports.updateSellerProduct = async (req, res) => {
+const updateSellerProduct = async (req, res) => {
   try {
     const product = await Product.findOne({
       _id: req.params.id,
@@ -203,14 +306,14 @@ exports.updateSellerProduct = async (req, res) => {
 
     await product.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Product updated successfully',
       product
     });
   } catch (error) {
     console.error('Update seller product error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to update product' 
     });
@@ -220,7 +323,7 @@ exports.updateSellerProduct = async (req, res) => {
 // @desc    Delete seller product
 // @route   DELETE /api/seller/products/:id
 // @access  Private/Seller
-exports.deleteSellerProduct = async (req, res) => {
+const deleteSellerProduct = async (req, res) => {
   try {
     const product = await Product.findOne({
       _id: req.params.id,
@@ -238,13 +341,13 @@ exports.deleteSellerProduct = async (req, res) => {
     product.liveStatus = 'archived';
     await product.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Product deleted successfully'
     });
   } catch (error) {
     console.error('Delete seller product error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to delete product' 
     });
@@ -254,7 +357,7 @@ exports.deleteSellerProduct = async (req, res) => {
 // @desc    Get seller orders
 // @route   GET /api/seller/orders
 // @access  Private/Seller
-exports.getSellerOrders = async (req, res) => {
+const getSellerOrders = async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
 
@@ -289,7 +392,7 @@ exports.getSellerOrders = async (req, res) => {
       };
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       orders: ordersWithSellerData,
       pagination: {
@@ -301,7 +404,7 @@ exports.getSellerOrders = async (req, res) => {
     });
   } catch (error) {
     console.error('Get seller orders error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch orders' 
     });
@@ -311,7 +414,7 @@ exports.getSellerOrders = async (req, res) => {
 // @desc    Update order status (seller)
 // @route   PUT /api/seller/orders/:id
 // @access  Private/Seller
-exports.updateSellerOrder = async (req, res) => {
+const updateSellerOrder = async (req, res) => {
   try {
     const { status, trackingNumber, courier, note } = req.body;
 
@@ -357,14 +460,14 @@ exports.updateSellerOrder = async (req, res) => {
 
     await order.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Order updated successfully',
       order
     });
   } catch (error) {
     console.error('Update seller order error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to update order' 
     });
@@ -374,7 +477,7 @@ exports.updateSellerOrder = async (req, res) => {
 // @desc    Get seller earnings
 // @route   GET /api/seller/earnings
 // @access  Private/Seller
-exports.getSellerEarnings = async (req, res) => {
+const getSellerEarnings = async (req, res) => {
   try {
     const { period = 'month' } = req.query;
 
@@ -432,14 +535,14 @@ exports.getSellerEarnings = async (req, res) => {
         }}
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       earnings,
       totals: total[0] || { totalEarnings: 0, totalCommission: 0, totalOrders: 0 }
     });
   } catch (error) {
     console.error('Get seller earnings error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch earnings' 
     });
@@ -449,7 +552,7 @@ exports.getSellerEarnings = async (req, res) => {
 // @desc    Request withdrawal
 // @route   POST /api/seller/withdraw
 // @access  Private/Seller
-exports.requestWithdrawal = async (req, res) => {
+const requestWithdrawal = async (req, res) => {
   try {
     const { amount, paymentMethod, accountDetails } = req.body;
 
@@ -504,14 +607,14 @@ exports.requestWithdrawal = async (req, res) => {
     user.pendingWithdrawals = (user.pendingWithdrawals || 0) + amount;
     await user.save();
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: 'Withdrawal request submitted',
       withdrawal
     });
   } catch (error) {
     console.error('Withdrawal request error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to submit withdrawal request' 
     });
@@ -521,7 +624,7 @@ exports.requestWithdrawal = async (req, res) => {
 // @desc    Get seller profile
 // @route   GET /api/seller/profile
 // @access  Private/Seller
-exports.getSellerProfile = async (req, res) => {
+const getSellerProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
       .select('-password -otp -otpExpire -resetPasswordToken -resetPasswordExpires -cart -favorites');
@@ -542,7 +645,7 @@ exports.getSellerProfile = async (req, res) => {
       ])
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       seller: {
         ...user.toObject(),
@@ -555,7 +658,7 @@ exports.getSellerProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('Get seller profile error:', error);
-    res.status(500).json({ 
+    return res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch seller profile' 
     });
@@ -565,20 +668,20 @@ exports.getSellerProfile = async (req, res) => {
 // @desc    Get sales (seller)
 // @route   GET /api/seller/sales
 // @access  Private/Seller
-exports.getSellerSales = async (req, res) => {
+const getSellerSales = async (req, res) => {
   try {
     const sales = await Sale.find({ user: req.user.id }).populate('product', 'name').sort({ createdAt: -1 });
-    res.status(200).json({ success: true, sales });
+    return res.status(200).json({ success: true, sales });
   } catch (error) {
     console.error('Get sales error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch sales' });
+    return res.status(500).json({ success: false, message: 'Failed to fetch sales' });
   }
 };
 
 // @desc    Create sale (seller)
 // @route   POST /api/seller/sales
 // @access  Private/Seller
-exports.createSellerSale = async (req, res) => {
+const createSellerSale = async (req, res) => {
   try {
     const { product, quantity, totalAmount, paymentMethod, description } = req.body;
     const productInfo = await Product.findOne({ _id: product, user: req.user.id });
@@ -602,30 +705,30 @@ exports.createSellerSale = async (req, res) => {
     productInfo.stock -= quantity;
     await productInfo.save();
 
-    res.status(201).json({ success: true, sale });
+    return res.status(201).json({ success: true, sale });
   } catch (error) {
     console.error('Create sale error:', error);
-    res.status(500).json({ success: false, message: error.message || 'Failed to create sale' });
+    return res.status(500).json({ success: false, message: error.message || 'Failed to create sale' });
   }
 };
 
 // @desc    Get purchases (seller)
 // @route   GET /api/seller/purchases
 // @access  Private/Seller
-exports.getSellerPurchases = async (req, res) => {
+const getSellerPurchases = async (req, res) => {
   try {
     const purchases = await Purchase.find({ user: req.user.id }).populate('product', 'name').sort({ createdAt: -1 });
-    res.status(200).json({ success: true, purchases });
+    return res.status(200).json({ success: true, purchases });
   } catch (error) {
     console.error('Get purchases error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch purchases' });
+    return res.status(500).json({ success: false, message: 'Failed to fetch purchases' });
   }
 };
 
 // @desc    Create purchase (seller)
 // @route   POST /api/seller/purchases
 // @access  Private/Seller
-exports.createSellerPurchase = async (req, res) => {
+const createSellerPurchase = async (req, res) => {
   try {
     const { product, quantity, totalAmount, description } = req.body;
     const productInfo = await Product.findOne({ _id: product, user: req.user.id });
@@ -643,30 +746,30 @@ exports.createSellerPurchase = async (req, res) => {
     productInfo.stock += Number(quantity);
     await productInfo.save();
 
-    res.status(201).json({ success: true, purchase });
+    return res.status(201).json({ success: true, purchase });
   } catch (error) {
     console.error('Create purchase error:', error);
-    res.status(500).json({ success: false, message: 'Failed to create purchase' });
+    return res.status(500).json({ success: false, message: 'Failed to create purchase' });
   }
 };
 
 // @desc    Get transactions (seller)
 // @route   GET /api/seller/transactions
 // @access  Private/Seller
-exports.getSellerTransactions = async (req, res) => {
+const getSellerTransactions = async (req, res) => {
   try {
     const transactions = await Transaction.find({ user: req.user.id }).sort({ createdAt: -1 });
-    res.status(200).json({ success: true, transactions });
+    return res.status(200).json({ success: true, transactions });
   } catch (error) {
     console.error('Get transactions error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch transactions' });
+    return res.status(500).json({ success: false, message: 'Failed to fetch transactions' });
   }
 };
 
 // @desc    Create transaction (seller)
 // @route   POST /api/seller/transactions
 // @access  Private/Seller
-exports.createSellerTransaction = async (req, res) => {
+const createSellerTransaction = async (req, res) => {
   try {
     const { type, amount, description, reference, paymentMethod } = req.body;
 
@@ -680,17 +783,17 @@ exports.createSellerTransaction = async (req, res) => {
       status: 'completed'
     });
 
-    res.status(201).json({ success: true, transaction });
+    return res.status(201).json({ success: true, transaction });
   } catch (error) {
     console.error('Create transaction error:', error);
-    res.status(500).json({ success: false, message: 'Failed to create transaction' });
+    return res.status(500).json({ success: false, message: 'Failed to create transaction' });
   }
 };
 
 // @desc    Get customers of seller (read-only)
 // @route   GET /api/seller/customers
 // @access  Private/Seller
-exports.getSellerCustomers = async (req, res) => {
+const getSellerCustomers = async (req, res) => {
   try {
     const orders = await Order.find({ 'sellers.sellerId': req.user.id }).populate('user', 'name email phoneNumber');
     const customersMap = new Map();
@@ -700,9 +803,30 @@ exports.getSellerCustomers = async (req, res) => {
       }
     });
 
-    res.status(200).json({ success: true, customers: Array.from(customersMap.values()) });
+    return res.status(200).json({ success: true, customers: Array.from(customersMap.values()) });
   } catch (error) {
     console.error('Get customers error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch customers' });
+    return res.status(500).json({ success: false, message: 'Failed to fetch customers' });
   }
+};
+
+// Export all functions
+module.exports = {
+  getSellerStats,
+  getSellerProducts,
+  createSellerProduct,
+  updateSellerProduct,
+  deleteSellerProduct,
+  getSellerOrders,
+  updateSellerOrder,
+  getSellerEarnings,
+  requestWithdrawal,
+  getSellerProfile,
+  getSellerSales,
+  createSellerSale,
+  getSellerPurchases,
+  createSellerPurchase,
+  getSellerTransactions,
+  createSellerTransaction,
+  getSellerCustomers
 };

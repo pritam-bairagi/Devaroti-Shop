@@ -1,18 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const {
-  getProducts,
-  getProductById,
-  createProduct,
-  updateProduct,
-  deleteProduct,
-  getSellerProducts,
-  getCategories,
-  getFeaturedProducts,
-  updateStock,
-  bulkImport
-} = require('../controllers/productController');
+const productController = require('../controllers/productController');
 const { protect, admin, adminOrSeller } = require('../middleware/authMiddleware');
 const { upload } = require('../middleware/uploadMiddleware');
 
@@ -28,19 +17,19 @@ const productValidation = [
 ];
 
 // Public routes
-router.get('/', getProducts);
-router.get('/categories/all', getCategories);
-router.get('/featured', getFeaturedProducts);
-router.get('/seller', protect, adminOrSeller, getSellerProducts);
-router.get('/:id', getProductById);
+router.get('/', productController.getProducts);
+router.get('/categories/all', productController.getCategories);
+router.get('/featured', productController.getFeaturedProducts);
+router.get('/seller', protect, adminOrSeller, productController.getSellerProducts);
+router.get('/:id', productController.getProductById);
 
 // Protected routes
-router.post('/', protect, adminOrSeller, upload.single('image'), productValidation, createProduct);
-router.put('/:id', protect, adminOrSeller, upload.single('image'), updateProduct);
-router.delete('/:id', protect, adminOrSeller, deleteProduct);
-router.put('/:id/stock', protect, adminOrSeller, updateStock);
+router.post('/', protect, adminOrSeller, upload.single('image'), productValidation, productController.createProduct);
+router.put('/:id', protect, adminOrSeller, upload.single('image'), productController.updateProduct);
+router.delete('/:id', protect, adminOrSeller, productController.deleteProduct);
+router.put('/:id/stock', protect, adminOrSeller, productController.updateStock);
 
 // Admin only
-router.post('/bulk', protect, admin, bulkImport);
+router.post('/bulk', protect, admin, productController.bulkImport);
 
 module.exports = router;
