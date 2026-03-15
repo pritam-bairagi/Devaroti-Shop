@@ -183,6 +183,18 @@ const Home = () => {
             Shop by Category
           </h2>
           <div className="w-20 h-1.5 bg-primary mx-auto rounded-full" />
+                        {/* Categories Dropdown */}
+              {/* <div className="relative group">
+                <button className="flex items-center gap-1 text-gray-600 hover:text-[#f7644f] font-medium transition-colors">
+                  Categories <ChevronDown size={16} />
+                </button>
+                <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                  <Link to="/shop?category=electronics" className="block px-4 py-2 hover:bg-gray-50 text-sm">Electronics</Link>
+                  <Link to="/shop?category=fashion" className="block px-4 py-2 hover:bg-gray-50 text-sm">Fashion</Link>
+                  <Link to="/shop?category=home" className="block px-4 py-2 hover:bg-gray-50 text-sm">Home & Living</Link>
+                  <Link to="/shop?category=books" className="block px-4 py-2 hover:bg-gray-50 text-sm">Books</Link>
+                </div>
+              </div> */}
         </div>
 
         {loading ? (
@@ -197,7 +209,7 @@ const Home = () => {
               >
                 <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center hover:shadow-xl hover:border-primary transition-all group-hover:-translate-y-1">
                   <img
-                    src={category.image || 'https://via.placeholder.com/100'}
+                    src={category.image /*|| 'https://via.placeholder.com/100'*/}
                     alt={category._id}
                     className="w-20 h-20 object-contain mx-auto mb-4"
                   />
