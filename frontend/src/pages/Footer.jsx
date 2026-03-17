@@ -71,7 +71,7 @@ const Footer = () => {
   return (
     <footer className="bg-gray-100 pt-10 border-t border-gray-600">
       <div className="pb-8">
-        <span className="text-2xl ml-8 pl-10 font-black text-red-600">PARASH FERI</span>
+        <span className="text-2xl ml-8 pl-10 font-black text-red-600">DEVAROTI SHOP</span>
       </div>
       <div className="max-w-7xl mx-auto p-6 pb-10 grid grid-cols-2 sm:grid-cols-4 gap-10">
 

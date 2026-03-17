@@ -1,9 +1,11 @@
+// models/Order.js - Complete Fixed Version
 const mongoose = require('mongoose');
 
 const orderSchema = new mongoose.Schema({
   orderNumber: {
     type: String,
     unique: true,
+    required: true
   },
 
   user: {
@@ -19,6 +21,10 @@ const orderSchema = new mongoose.Schema({
       ref: 'Product',
       required: true
     },
+    name: {
+      type: String,
+      required: true
+    },
     quantity: {
       type: Number,
       required: true,
@@ -32,7 +38,6 @@ const orderSchema = new mongoose.Schema({
       type: Number,
       default: 0
     },
-    name: String,
     image: String,
     seller: {
       type: mongoose.Schema.Types.ObjectId,
@@ -45,42 +50,47 @@ const orderSchema = new mongoose.Schema({
     required: true,
     default: 0
   },
+  
   discount: {
     type: Number,
     default: 0
   },
+  
   vat: {
     type: Number,
     default: 0
   },
+  
   shippingCost: {
     type: Number,
     default: 0
   },
+  
   totalPrice: {
     type: Number,
     required: true
   },
 
   shippingAddress: {
-    fullName: String,
+    name: String,
+    phone: String,
     addressLine1: String,
     addressLine2: String,
     city: String,
     state: String,
     postalCode: String,
-    country: { type: String, default: 'Bangladesh' },
-    phoneNumber: String
+    country: { type: String, default: 'Bangladesh' }
   },
+  
   billingAddress: {
-    fullName: String,
+    name: String,
+    phone: String,
     addressLine1: String,
     addressLine2: String,
     city: String,
     state: String,
     postalCode: String,
-    country: { type: String, default: 'Bangladesh' },
-    phoneNumber: String
+    country: { type: String, default: 'Bangladesh' }
   },
 
   deliveryOption: {
@@ -88,29 +98,34 @@ const orderSchema = new mongoose.Schema({
     enum: ['standard', 'express', 'same-day'],
     default: 'standard'
   },
+  
   deliveryInstructions: String,
   estimatedDeliveryDate: Date,
   actualDeliveryDate: Date,
 
   paymentMethod: {
     type: String,
-    enum: ['Cash on Delivery', 'bkash', 'nagad', 'rocket', 'bank', 'card'],
+    enum: ['cash', 'card', 'bkash', 'nagad', 'rocket', 'bank', 'Cash on Delivery'],
     required: true
   },
+  
   paymentStatus: {
     type: String,
     enum: ['pending', 'paid', 'failed', 'refunded'],
     default: 'pending'
   },
+  
   paymentDetails: {
     transactionId: String,
     paymentDate: Date,
     reference: String
   },
+  
   isPaid: {
     type: Boolean,
     default: false
   },
+  
   paidAt: Date,
 
   status: {
@@ -122,6 +137,17 @@ const orderSchema = new mongoose.Schema({
     default: 'pending',
     index: true
   },
+
+  pendingAt: Date,
+  confirmedAt: Date,
+  processingAt: Date,
+  shippedAt: Date,
+  outForDeliveryAt: Date,
+  deliveredAt: Date,
+  cancelledAt: Date,
+  returnedAt: Date,
+  refundedAt: Date,
+
   statusHistory: [{
     status: String,
     date: { type: Date, default: Date.now },
@@ -134,6 +160,7 @@ const orderSchema = new mongoose.Schema({
 
   trackingNumber: String,
   courier: String,
+  
   courierDetails: {
     type: Map,
     of: String
@@ -143,15 +170,13 @@ const orderSchema = new mongoose.Schema({
   adminNotes: String,
 
   cancellationReason: String,
-  cancelledAt: Date,
-  returnedAt: Date,
   refundAmount: Number,
-  refundedAt: Date,
 
   platformCommission: {
     type: Number,
     default: 0
   },
+  
   sellerEarnings: {
     type: Number,
     default: 0
@@ -175,6 +200,7 @@ const orderSchema = new mongoose.Schema({
 
   invoiceUrl: String,
   invoiceNumber: String
+
 }, {
   timestamps: true,
   toJSON: { virtuals: true },
@@ -185,33 +211,47 @@ const orderSchema = new mongoose.Schema({
 orderSchema.index({ user: 1, createdAt: -1 });
 orderSchema.index({ 'items.seller': 1 });
 orderSchema.index({ orderNumber: 1 });
+orderSchema.index({ status: 1, createdAt: -1 });
+orderSchema.index({ paymentStatus: 1 });
 
 // Generate order number before saving
-orderSchema.pre('save', function(next) {
+orderSchema.pre('save', async function(next) {
   if (!this.orderNumber) {
     const date = new Date();
     const year = date.getFullYear().toString().slice(-2);
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const day = date.getDate().toString().padStart(2, '0');
-    const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    this.orderNumber = `ORD-${year}${month}${day}-${random}`;
+    
+    const count = await mongoose.model('Order').countDocuments();
+    const sequential = (count + 1).toString().padStart(4, '0');
+    
+    this.orderNumber = `ORD-${year}${month}${day}-${sequential}`;
   }
   
-  // Update isPaid based on paymentStatus
   this.isPaid = this.paymentStatus === 'paid';
   
+  if (this.isModified('status')) {
+    const statusField = this.status.replace('-', '') + 'At';
+    if (this[statusField] !== undefined) {
+      this[statusField] = new Date();
+    }
+  }
+
   next();
 });
 
-// Virtual for order summary
+// Virtuals
 orderSchema.virtual('summary').get(function() {
   return {
     orderNumber: this.orderNumber,
     totalItems: this.items.reduce((acc, item) => acc + item.quantity, 0),
+    subtotal: this.subtotal,
     totalPrice: this.totalPrice,
     status: this.status,
-    paymentStatus: this.paymentStatus
+    paymentStatus: this.paymentStatus,
+    isPaid: this.isPaid
   };
 });
 
-module.exports = mongoose.model('Order', orderSchema);
+const Order = mongoose.model('Order', orderSchema);
+module.exports = Order;

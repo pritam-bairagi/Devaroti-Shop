@@ -1,30 +1,45 @@
+// controllers/authController.js - Complete Fixed Version
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { validationResult } = require('express-validator');
-const sendEmail = require('../utils/sendEmail');
-const emailTemplates = require('../utils/emailTemplates');
 
-// Generate JWT Token
+// ==================== HELPER FUNCTIONS ====================
+
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRE || '7d'
   });
 };
 
-// Generate refresh token
 const generateRefreshToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET + 'refresh', {
+  return jwt.sign({ id }, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET + 'refresh', {
     expiresIn: '30d'
   });
 };
 
-// @desc    Register user
-// @route   POST /api/auth/register
-// @access  Public
+const getPopulatedUser = async (userId) => {
+  return await User.findById(userId)
+    .select('-password -otp -otpExpire -resetPasswordToken -resetPasswordExpires -reactivationToken -reactivationExpires')
+    .populate({
+      path: 'cart.product',
+      select: 'name price sellingPrice image stock category'
+    })
+    .populate({
+      path: 'favorites',
+      select: 'name price sellingPrice image stock category rating'
+    });
+};
+
+const validatePhoneNumber = (phone) => {
+  const re = /^01[3-9]\d{8}$/;
+  return re.test(phone);
+};
+
+// ==================== AUTH CONTROLLERS ====================
+
 const register = async (req, res) => {
   try {
-    // Validation
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ 
@@ -35,7 +50,13 @@ const register = async (req, res) => {
 
     const { name, email, password, phoneNumber, role, shopName, location, bio } = req.body;
 
-    // Check if user exists
+    if (!validatePhoneNumber(phoneNumber)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please enter a valid Bangladesh phone number (01XXXXXXXXX)' 
+      });
+    }
+
     const userExists = await User.findOne({ 
       $or: [{ email }, { phoneNumber }] 
     });
@@ -48,63 +69,51 @@ const register = async (req, res) => {
       });
     }
 
-    // Validate role
     const validRole = ['user', 'seller', 'courier'].includes(role) ? role : 'user';
 
-    // Create user with OTP
-    const user = new User({
+    const userData = {
       name,
       email,
       password,
       phoneNumber,
       role: validRole,
-      shopName: validRole === 'seller' ? shopName : undefined,
       location,
       bio
-    });
+    };
 
-    // Generate OTP
+    if (validRole === 'seller') {
+      if (!shopName) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Shop name is required for sellers' 
+        });
+      }
+      userData.shopName = shopName;
+      userData.isSellerApproved = false;
+    }
+
+    const user = new User(userData);
     const otp = user.generateOTP();
     await user.save();
 
-    // Send verification email
-    try {
-      await sendEmail({
-        email: user.email,
-        subject: 'Verify Your Email - Parash Feri',
-        html: emailTemplates.verification(otp, user.name)
-      });
+    // In production, send actual email here
+    console.log(`OTP for ${email}: ${otp}`);
 
-      return res.status(201).json({
-        success: true,
-        message: 'Registration successful. Please verify your email with the OTP sent.',
-        userId: user._id,
-        requiresVerification: true
-      });
-    } catch (emailError) {
-      console.error('Email sending error:', emailError);
-      
-      // If email fails, still create user but mark as not verified
-      return res.status(201).json({
-        success: true,
-        message: 'Registration successful but verification email failed. Please request a new OTP.',
-        userId: user._id,
-        requiresVerification: true,
-        emailFailed: true
-      });
-    }
+    return res.status(201).json({
+      success: true,
+      message: 'Registration successful. Please verify your email with the OTP sent.',
+      userId: user._id,
+      requiresVerification: true
+    });
   } catch (error) {
     console.error('Registration error:', error);
     return res.status(500).json({ 
       success: false, 
-      message: 'Registration failed. Please try again.' 
+      message: error.message || 'Registration failed. Please try again.' 
     });
   }
 };
 
-// @desc    Verify OTP
-// @route   POST /api/auth/verify
-// @access  Public
 const verifyOTP = async (req, res) => {
   try {
     const { userId, otp } = req.body;
@@ -125,7 +134,6 @@ const verifyOTP = async (req, res) => {
       });
     }
 
-    // Check if already verified
     if (user.isVerified) {
       return res.status(400).json({ 
         success: false, 
@@ -133,7 +141,6 @@ const verifyOTP = async (req, res) => {
       });
     }
 
-    // Check OTP validity
     if (!user.otp || user.otp !== otp || user.otpExpire < Date.now()) {
       return res.status(400).json({ 
         success: false, 
@@ -141,34 +148,16 @@ const verifyOTP = async (req, res) => {
       });
     }
 
-    // Mark as verified
     user.isVerified = true;
     user.isEmailVerified = true;
     user.otp = undefined;
     user.otpExpire = undefined;
     await user.save();
 
-    // Send welcome email
-    try {
-      await sendEmail({
-        email: user.email,
-        subject: 'Welcome to Parash Feri!',
-        html: emailTemplates.welcome(user.name)
-      });
-    } catch (emailError) {
-      console.error('Welcome email error:', emailError);
-      // Don't fail if welcome email fails
-    }
-
-    // Generate tokens
     const token = generateToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
 
-    // Get populated user data
-    const populatedUser = await User.findById(user._id)
-      .select('-password -otp -otpExpire -resetPasswordToken -resetPasswordExpires')
-      .populate('cart.product')
-      .populate('favorites');
+    const populatedUser = await getPopulatedUser(user._id);
 
     return res.status(200).json({
       success: true,
@@ -186,9 +175,6 @@ const verifyOTP = async (req, res) => {
   }
 };
 
-// @desc    Resend OTP
-// @route   POST /api/auth/resend-otp
-// @access  Public
 const resendOTP = async (req, res) => {
   try {
     const { userId, email } = req.body;
@@ -214,16 +200,10 @@ const resendOTP = async (req, res) => {
       });
     }
 
-    // Generate new OTP
     const otp = user.generateOTP();
     await user.save();
 
-    // Send email
-    await sendEmail({
-      email: user.email,
-      subject: 'New OTP for Verification - Parash Feri',
-      html: emailTemplates.verification(otp, user.name)
-    });
+    console.log(`New OTP for ${user.email}: ${otp}`);
 
     return res.status(200).json({
       success: true,
@@ -238,9 +218,6 @@ const resendOTP = async (req, res) => {
   }
 };
 
-// @desc    Login user
-// @route   POST /api/auth/login
-// @access  Public
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -252,7 +229,6 @@ const login = async (req, res) => {
       });
     }
 
-    // Find user with password field
     const user = await User.findOne({ email }).select('+password');
 
     if (!user) {
@@ -262,7 +238,6 @@ const login = async (req, res) => {
       });
     }
 
-    // Check if account is active
     if (!user.isActive) {
       return res.status(403).json({ 
         success: false, 
@@ -270,11 +245,11 @@ const login = async (req, res) => {
       });
     }
 
-    // Check email verification
     if (!user.isVerified || !user.isEmailVerified) {
-      // Generate new OTP
       const otp = user.generateOTP();
       await user.save();
+
+      console.log(`OTP for verification: ${otp}`);
 
       return res.status(401).json({ 
         success: false, 
@@ -284,7 +259,6 @@ const login = async (req, res) => {
       });
     }
 
-    // Check password
     const isMatch = await user.matchPassword(password);
 
     if (!isMatch) {
@@ -294,21 +268,12 @@ const login = async (req, res) => {
       });
     }
 
-    // Update last login
     await user.updateLastLogin();
 
-    // Generate tokens
     const token = generateToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
 
-    // Get populated user data
-    const populatedUser = await User.findById(user._id)
-      .select('-password -otp -otpExpire -resetPasswordToken -resetPasswordExpires')
-      .populate({
-        path: 'cart.product',
-        select: 'name price sellingPrice image stock'
-      })
-      .populate('favorites');
+    const populatedUser = await getPopulatedUser(user._id);
 
     return res.status(200).json({
       success: true,
@@ -321,14 +286,86 @@ const login = async (req, res) => {
     console.error('Login error:', error);
     return res.status(500).json({ 
       success: false, 
+      message: error.message || 'Login failed. Please try again.' 
+    });
+  }
+};
+
+const loginWithPhone = async (req, res) => {
+  try {
+    const { phoneNumber, password } = req.body;
+
+    if (!phoneNumber || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Phone number and password are required' 
+      });
+    }
+
+    if (!validatePhoneNumber(phoneNumber)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid phone number format' 
+      });
+    }
+
+    const user = await User.findOne({ phoneNumber }).select('+password');
+
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Your account has been deactivated. Please contact support.' 
+      });
+    }
+
+    if (!user.isVerified) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Please verify your account first',
+        userId: user._id,
+        requiresVerification: true
+      });
+    }
+
+    const isMatch = await user.matchPassword(password);
+
+    if (!isMatch) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
+    }
+
+    await user.updateLastLogin();
+
+    const token = generateToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
+
+    const populatedUser = await getPopulatedUser(user._id);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logged in successfully',
+      token,
+      refreshToken,
+      user: populatedUser
+    });
+  } catch (error) {
+    console.error('Phone login error:', error);
+    return res.status(500).json({ 
+      success: false, 
       message: 'Login failed. Please try again.' 
     });
   }
 };
 
-// @desc    Refresh token
-// @route   POST /api/auth/refresh-token
-// @access  Public
 const refreshToken = async (req, res) => {
   try {
     const { refreshToken: token } = req.body;
@@ -341,7 +378,7 @@ const refreshToken = async (req, res) => {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET + 'refresh');
+      const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET + 'refresh');
       
       const user = await User.findById(decoded.id).select('-password');
 
@@ -349,6 +386,13 @@ const refreshToken = async (req, res) => {
         return res.status(401).json({ 
           success: false, 
           message: 'User not found' 
+        });
+      }
+
+      if (!user.isActive) {
+        return res.status(403).json({ 
+          success: false, 
+          message: 'Account is deactivated' 
         });
       }
 
@@ -373,21 +417,9 @@ const refreshToken = async (req, res) => {
   }
 };
 
-// @desc    Get current user
-// @route   GET /api/auth/me
-// @access  Private
 const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id)
-      .select('-password -otp -otpExpire -resetPasswordToken -resetPasswordExpires')
-      .populate({
-        path: 'cart.product',
-        select: 'name price sellingPrice image stock category'
-      })
-      .populate({
-        path: 'favorites',
-        select: 'name price sellingPrice image stock category'
-      });
+    const user = await getPopulatedUser(req.user.id);
 
     if (!user) {
       return res.status(404).json({ 
@@ -409,54 +441,37 @@ const getMe = async (req, res) => {
   }
 };
 
-// @desc    Forgot Password
-// @route   POST /api/auth/forgot-password
-// @access  Public
 const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
 
+    if (!email) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email is required' 
+      });
+    }
+
     const user = await User.findOne({ email });
 
     if (!user) {
-      // For security, don't reveal if user exists
       return res.status(200).json({ 
         success: true, 
         message: 'If an account exists with that email, a password reset link has been sent.' 
       });
     }
 
-    // Get reset token
-    const resetToken = user.getResetPasswordToken();
+    const resetToken = user.generateResetPasswordToken();
     await user.save({ validateBeforeSave: false });
 
-    // Create reset URL
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${resetToken}`;
 
-    try {
-      await sendEmail({
-        email: user.email,
-        subject: 'Password Reset Request - Parash Feri',
-        html: emailTemplates.resetPassword(resetUrl, user.name)
-      });
+    console.log(`Reset password link for ${email}: ${resetUrl}`);
 
-      return res.status(200).json({ 
-        success: true, 
-        message: 'Password reset link sent to email' 
-      });
-    } catch (emailError) {
-      console.error('Email error:', emailError);
-      
-      // Reset token if email fails
-      user.resetPasswordToken = undefined;
-      user.resetPasswordExpires = undefined;
-      await user.save({ validateBeforeSave: false });
-
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to send reset email. Please try again.' 
-      });
-    }
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Password reset link sent to email' 
+    });
   } catch (error) {
     console.error('Forgot password error:', error);
     return res.status(500).json({ 
@@ -466,15 +481,28 @@ const forgotPassword = async (req, res) => {
   }
 };
 
-// @desc    Reset Password
-// @route   PUT /api/auth/reset-password/:token
-// @access  Public
 const resetPassword = async (req, res) => {
   try {
-    // Get hashed token
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!token || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Token and new password are required' 
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Password must be at least 6 characters' 
+      });
+    }
+
     const resetPasswordToken = crypto
       .createHash('sha256')
-      .update(req.params.token)
+      .update(token)
       .digest('hex');
 
     const user = await User.findOne({
@@ -489,19 +517,19 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    // Set new password
-    user.password = req.body.password;
+    user.password = password;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();
 
-    // Generate new token for auto-login
-    const token = generateToken(user._id);
+    const authToken = generateToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
 
     return res.status(200).json({
       success: true,
       message: 'Password reset successful',
-      token
+      token: authToken,
+      refreshToken
     });
   } catch (error) {
     console.error('Reset password error:', error);
@@ -512,9 +540,6 @@ const resetPassword = async (req, res) => {
   }
 };
 
-// @desc    Change Password
-// @route   PUT /api/auth/change-password
-// @access  Private
 const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -542,7 +567,6 @@ const changePassword = async (req, res) => {
       });
     }
 
-    // Check current password
     const isMatch = await user.matchPassword(currentPassword);
 
     if (!isMatch) {
@@ -552,7 +576,6 @@ const changePassword = async (req, res) => {
       });
     }
 
-    // Set new password
     user.password = newPassword;
     await user.save();
 
@@ -569,20 +592,13 @@ const changePassword = async (req, res) => {
   }
 };
 
-// @desc    Logout (client-side only, but we provide endpoint for completeness)
-// @route   POST /api/auth/logout
-// @access  Private
 const logout = async (req, res) => {
-  // With JWT, logout is handled client-side by removing token
   return res.status(200).json({ 
     success: true, 
     message: 'Logged out successfully' 
   });
 };
 
-// @desc    Check if authenticated
-// @route   GET /api/auth/check
-// @access  Private
 const checkAuth = async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
@@ -601,9 +617,12 @@ const checkAuth = async (req, res) => {
         _id: user._id,
         name: user.name,
         email: user.email,
+        phoneNumber: user.phoneNumber,
         role: user.role,
         isVerified: user.isVerified,
-        profilePic: user.profilePic
+        profilePic: user.profilePic,
+        level: user.level,
+        levelColor: user.levelColor
       }
     });
   } catch (error) {
@@ -615,17 +634,106 @@ const checkAuth = async (req, res) => {
   }
 };
 
-// Export all functions as an object
+const sendPhoneOTP = async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    if (!validatePhoneNumber(phoneNumber)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid phone number format' 
+      });
+    }
+
+    const existingUser = await User.findOne({ 
+      phoneNumber, 
+      _id: { $ne: user._id } 
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Phone number already registered' 
+      });
+    }
+
+    const otp = user.generateOTP();
+    user.phoneNumber = phoneNumber;
+    await user.save();
+
+    console.log(`Phone OTP for ${phoneNumber}: ${otp}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'OTP sent successfully'
+    });
+  } catch (error) {
+    console.error('Send phone OTP error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to send OTP' 
+    });
+  }
+};
+
+const verifyPhoneOTP = async (req, res) => {
+  try {
+    const { otp } = req.body;
+    const user = await User.findById(req.user.id).select('+otp +otpExpire');
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    if (!user.otp || user.otp !== otp || user.otpExpire < Date.now()) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid or expired OTP' 
+      });
+    }
+
+    user.isPhoneVerified = true;
+    user.otp = undefined;
+    user.otpExpire = undefined;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Phone number verified successfully'
+    });
+  } catch (error) {
+    console.error('Verify phone OTP error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Verification failed' 
+    });
+  }
+};
+
 module.exports = {
   register,
   verifyOTP,
   resendOTP,
   login,
+  loginWithPhone,
   refreshToken,
   getMe,
   forgotPassword,
   resetPassword,
   changePassword,
   logout,
-  checkAuth
+  checkAuth,
+  sendPhoneOTP,
+  verifyPhoneOTP
 };

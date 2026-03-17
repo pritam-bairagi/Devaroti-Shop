@@ -194,6 +194,12 @@ function App() {
                 background: '#10b981',
               },
             },
+            warning: {
+              icon: '⚠️',
+              style: {
+                background: '#f59e0b',
+              },
+            },
             error: {
               icon: '❌',
               style: {
