@@ -3,172 +3,87 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
+const fs = require('fs');
 
-// Load env vars
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '.env') });
 
-// Import database connection
 const connectDB = require('./config/db');
-
-// Import seeders
-const seedAdmin = require('./src/utils/seeder');
-const seedProducts = require('./src/utils/productSeeder');
-
-// Import routes
-const authRoutes = require('./src/routes/authRoutes');
-const userRoutes = require('./src/routes/userRoutes');
-const productRoutes = require('./src/routes/productRoutes');
-const orderRoutes = require('./src/routes/orderRoutes');
-const adminRoutes = require('./src/routes/adminRoutes');
-const sellerRoutes = require('./src/routes/sellerRoutes');
-
-// Import error middleware
 const { notFound, errorHandler } = require('./src/middleware/errorMiddleware');
 
 const app = express();
 
-// ==================== DATABASE CONNECTION ====================
-// Connect to MongoDB with better error handling
 const startServer = async () => {
   try {
     await connectDB();
-    
-    // ==================== MIDDLEWARE ====================
-    // CORS configuration
+
     app.use(cors({
       origin: process.env.FRONTEND_URL || 'http://localhost:5173',
       credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
     }));
 
-    // Body parser middleware
+    // FIX: Stripe webhook needs raw body — must come BEFORE express.json()
+    app.use('/api/payment/stripe/webhook',
+      express.raw({ type: 'application/json' }),
+      (req, res, next) => { req.rawBody = req.body; next(); }
+    );
+
     app.use(express.json({ limit: '50mb' }));
     app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-    // Static folder for uploads
     const uploadsDir = path.join(__dirname, 'uploads');
-    // Create uploads directory if it doesn't exist
-    const fs = require('fs');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
     app.use('/uploads', express.static(uploadsDir));
 
-    // ==================== REQUEST LOGGING ====================
-    app.use((req, res, next) => {
-      console.log(`\n📨 ${new Date().toISOString()}`);
-      console.log(`${req.method} ${req.originalUrl}`);
-      console.log('Headers:', {
-        'content-type': req.headers['content-type'],
-        'authorization': req.headers['authorization'] ? 'Bearer [PRESENT]' : 'None'
-      });
-      if (req.method === 'POST' || req.method === 'PUT') {
-        console.log('Body:', JSON.stringify(req.body, null, 2).substring(0, 500));
-      }
-      next();
-    });
+    // Routes
+    app.use('/api/auth', require('./src/routes/authRoutes'));
+    app.use('/api/users', require('./src/routes/userRoutes'));
+    app.use('/api/products', require('./src/routes/productRoutes'));
+    app.use('/api/orders', require('./src/routes/orderRoutes'));
+    app.use('/api/admin', require('./src/routes/adminRoutes'));
+    app.use('/api/seller', require('./src/routes/sellerRoutes'));
+    app.use('/api/payment', require('./src/routes/paymentRoutes'));
+    app.use('/api/reviews', require('./src/routes/reviewRoutes'));
 
-    // ==================== ROUTES ====================
-    // API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/seller', sellerRoutes);
+    // FIX: Google OAuth callback must be public (no admin middleware)
+    app.get(
+      '/api/admin/google/callback',
+      require('./src/controllers/adminController').googleDriveCallback
+    );
 
-    // Test route
-    app.get('/api/test', (req, res) => {
-      res.json({ 
-        success: true, 
-        message: 'API is working',
-        timestamp: new Date().toISOString()
-      });
-    });
+    app.get('/health', (req, res) => res.json({
+      success: true,
+      message: 'Server is healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    }));
 
-    // ==================== HOME ROUTE ====================
-    app.get('/', (req, res) => {
-      res.json({
-        success: true,
-        message: '🚀 Parash Feri E-Commerce API',
-        version: '1.0.0',
-        environment: process.env.NODE_ENV || 'development',
-        timestamp: new Date().toISOString(),
-        database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-        endpoints: {
-          auth: {
-            register: 'POST /api/auth/register',
-            login: 'POST /api/auth/login',
-            verify: 'POST /api/auth/verify',
-            me: 'GET /api/auth/me'
-          },
-          users: {
-            profile: 'GET /api/users/profile',
-            cart: 'POST /api/users/cart',
-            favorites: 'GET /api/users/favorites'
-          },
-          products: {
-            list: 'GET /api/products',
-            single: 'GET /api/products/:id',
-            create: 'POST /api/products',
-            categories: 'GET /api/products/categories/all'
-          },
-          orders: {
-            create: 'POST /api/orders',
-            myOrders: 'GET /api/orders/my-orders',
-            track: 'GET /api/orders/track/:orderNumber'
-          },
-          admin: {
-            stats: 'GET /api/admin/stats',
-            users: 'GET /api/admin/users',
-            orders: 'GET /api/admin/orders'
-          },
-          seller: {
-            stats: 'GET /api/seller/stats',
-            products: 'GET /api/seller/products',
-            orders: 'GET /api/seller/orders'
-          }
-        }
-      });
-    });
-
-    // ==================== HEALTH CHECK ====================
-    app.get('/health', (req, res) => {
-      res.json({
-        success: true,
-        message: '✅ Server is healthy',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        memory: process.memoryUsage(),
-        database: {
-          state: mongoose.connection.readyState,
-          status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-          name: mongoose.connection.name,
-          host: mongoose.connection.host
-        }
-      });
-    });
-
-    // ==================== ERROR HANDLING ====================
-    // 404 handler
     app.use(notFound);
-
-    // Global error handler
     app.use(errorHandler);
 
-    // ==================== START SERVER ====================
     const PORT = Number(process.env.PORT) || 5000;
 
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log('\n' + '='.repeat(50));
-      console.log(`🚀 Server is running on port ${PORT}`);
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`\n${'='.repeat(50)}`);
+      console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
-      console.log(`🔗 API URL: http://localhost:${PORT}`);
-      console.log(`🩺 Health Check: http://localhost:${PORT}/health`);
-      console.log(`📊 Database: ${mongoose.connection.name} (${mongoose.connection.host})`);
+      console.log(`🌐 Frontend: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+      console.log(`🩺 Health: http://localhost:${PORT}/health`);
+      console.log(`📊 DB: ${mongoose.connection.name} @ ${mongoose.connection.host}`);
       console.log('='.repeat(50) + '\n');
+    });
+
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ Port ${PORT} is already in use!`);
+        console.error('Solutions:');
+        console.error(`  Windows: netstat -ano | findstr :${PORT}  then  taskkill /PID <PID> /F`);
+        console.error(`  Or run:  npx kill-port ${PORT}`);
+        console.error(`  Or change PORT in .env file\n`);
+        process.exit(1);
+      }
     });
 
   } catch (error) {
@@ -177,43 +92,24 @@ app.use('/api/seller', sellerRoutes);
   }
 };
 
-// Start the server
 startServer();
 
-// ==================== UNHANDLED ERRORS ====================
 process.on('uncaughtException', (err) => {
-  console.error('❌ Uncaught Exception:', err);
-  console.error(err.stack);
-  // Don't exit immediately in development
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  }
+  console.error('Uncaught Exception:', err.message);
 });
-
 process.on('unhandledRejection', (err) => {
-  console.error('❌ Unhandled Rejection:', err);
-  console.error(err.stack);
-  // Don't exit immediately in development
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  }
+  console.error('Unhandled Rejection:', err?.message || err);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM received. Closing server...');
-  mongoose.connection.close(() => {
-    console.log('✅ MongoDB connection closed');
-    process.exit(0);
-  });
+process.on('SIGTERM', async () => {
+  console.log('👋 SIGTERM received. Closing...');
+  await mongoose.connection.close();
+  process.exit(0);
 });
-
-process.on('SIGINT', () => {
-  console.log('👋 SIGINT received. Closing server...');
-  mongoose.connection.close(() => {
-    console.log('✅ MongoDB connection closed');
-    process.exit(0);
-  });
+process.on('SIGINT', async () => {
+  console.log('\n👋 SIGINT received. Closing...');
+  await mongoose.connection.close();
+  process.exit(0);
 });
 
 module.exports = app;

@@ -1,71 +1,72 @@
+/**
+ * test-db.js
+ * Tests MongoDB Atlas connection
+ * Run: npm test  OR  node config/test-db.js
+ */
+
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 
-// Load env vars
-dotenv.config({ path: '../.env' });
+// Load env from project root
+dotenv.config();
 
-const testAtlasConnection = async () => {
+const testConnection = async () => {
+  console.log('\n🔍 Testing MongoDB Atlas Connection...\n');
+
+  if (!process.env.MONGODB_URI) {
+    console.error('❌ MONGODB_URI is not set in .env file');
+    process.exit(1);
+  }
+
+  // Mask password in log
+  const maskedURI = process.env.MONGODB_URI.replace(/:([^@]+)@/, ':****@');
+  console.log('📡 URI:', maskedURI);
+
   try {
-    console.log('Testing MongoDB Atlas Connection...');
-    console.log('MONGODB_URI:', process.env.MONGODB_URI);
-    
-    if (!process.env.MONGODB_URI) {
-      throw new Error('MONGODB_URI is not defined in .env file');
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000,
+    });
+
+    console.log('✅ Connected to:', mongoose.connection.host);
+    console.log('📊 Database:', mongoose.connection.name);
+
+    // Test write
+    const db = mongoose.connection.db;
+    const col = db.collection('__connection_test__');
+
+    const writeResult = await col.insertOne({ test: true, ts: new Date() });
+    console.log('✅ Write OK — ID:', writeResult.insertedId);
+
+    // Test read
+    const doc = await col.findOne({ _id: writeResult.insertedId });
+    console.log('✅ Read OK —', doc ? 'Document found' : 'Not found');
+
+    // Cleanup
+    await col.deleteOne({ _id: writeResult.insertedId });
+    console.log('✅ Delete OK');
+
+    // List collections
+    const collections = await db.listCollections().toArray();
+    if (collections.length) {
+      console.log('\n📋 Existing collections:');
+      collections.forEach(c => console.log('   -', c.name));
+    } else {
+      console.log('\n📋 No collections yet (fresh database)');
     }
 
-    console.log('Attempting to connect to MongoDB Atlas...');
-    
-    await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    
-    console.log('✅ MongoDB Atlas connection successful!');
-    
-    // Test write operation
-    const db = mongoose.connection.db;
-    const testCollection = db.collection('test_connection');
-    
-    // Insert test document
-    const result = await testCollection.insertOne({ 
-      test: true, 
-      timestamp: new Date(),
-      message: 'Connection test'
-    });
-    console.log('✅ Write operation successful, inserted ID:', result.insertedId);
-    
-    // Read test document
-    const found = await testCollection.findOne({ test: true });
-    console.log('✅ Read operation successful, found:', found);
-    
-    // Delete test document
-    await testCollection.deleteMany({ test: true });
-    console.log('✅ Delete operation successful');
-    
-    // List all collections
-    const collections = await db.listCollections().toArray();
-    console.log('\nCollections in database:');
-    collections.forEach(col => console.log(` - ${col.name}`));
-    
-    await mongoose.disconnect();
-    console.log('\n✅ All tests passed! MongoDB Atlas is working correctly.');
+    console.log('\n🎉 All tests passed! MongoDB Atlas is working.\n');
+
+  } catch (err) {
+    console.error('\n❌ Connection FAILED:', err.message);
+    console.error('\n🔧 Troubleshooting:');
+    console.error('   1. Check MONGODB_URI in .env');
+    console.error('   2. Whitelist your IP in Atlas → Network Access');
+    console.error('   3. Check username/password in connection string');
+    console.error('   4. Make sure cluster is running\n');
+  } finally {
+    await mongoose.connection.close();
     process.exit(0);
-    
-  } catch (error) {
-    console.error('❌ MongoDB Atlas connection failed:');
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Error code:', error.code);
-    
-    console.error('\n🔧 Troubleshooting tips:');
-    console.error('1. Check if your IP address is whitelisted in MongoDB Atlas');
-    console.error('2. Verify username and password in connection string');
-    console.error('3. Make sure the database name is correct');
-    console.error('4. Check network connectivity');
-    console.error('5. Verify cluster is running');
-    
-    process.exit(1);
   }
 };
 
-testAtlasConnection();
+testConnection();

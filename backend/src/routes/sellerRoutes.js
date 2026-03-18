@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const sellerController = require('../controllers/sellerController');
-const { protect, seller } = require('../middleware/authMiddleware');
+const { protect, seller, approvedSeller } = require('../middleware/authMiddleware');
 
-// All seller routes are protected and seller-only
-router.use(protect, seller);
+// All seller routes require authentication + seller role + seller approval
+router.use(protect, seller, approvedSeller);
 
 // Dashboard
 router.get('/stats', sellerController.getSellerStats);
@@ -27,15 +27,15 @@ router.get('/customers', sellerController.getSellerCustomers);
 // Financial
 router.post('/withdraw', sellerController.requestWithdrawal);
 
-// Sales management
+// Sales
 router.get('/sales', sellerController.getSellerSales);
 router.post('/sales', sellerController.createSellerSale);
 
-// Purchases management
+// Purchases
 router.get('/purchases', sellerController.getSellerPurchases);
 router.post('/purchases', sellerController.createSellerPurchase);
 
-// Transactions management
+// Transactions
 router.get('/transactions', sellerController.getSellerTransactions);
 router.post('/transactions', sellerController.createSellerTransaction);
 

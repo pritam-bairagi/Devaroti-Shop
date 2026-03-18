@@ -518,9 +518,11 @@ const Dashboard = () => {
         setUser({ ...user, ...response.data.user });
         setEditing(false);
         toast.success('Profile updated successfully');
+      } else {
+        toast.error(response.data.message || 'Update failed');
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Update failed');
+      // Error toast is already shown by api.js interceptor
     }
   };
 

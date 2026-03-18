@@ -4,123 +4,79 @@ const Order = require('../models/Order');
 const Sale = require('../models/Sale');
 const Purchase = require('../models/Purchase');
 const Transaction = require('../models/Transaction');
+const mongoose = require('mongoose');
 
 // @desc    Get seller dashboard stats
 // @route   GET /api/seller/stats
-// @access  Private/Seller
 const getSellerStats = async (req, res) => {
   try {
-    const sellerId = req.user.id;
+    const sellerId = new mongoose.Types.ObjectId(req.user.id);
     const { startDate, endDate } = req.query;
 
-    // Date range
-    const start = startDate ? new Date(startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
+    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const end = endDate ? new Date(endDate) : new Date();
 
-    // Parallel queries
     const [
-      totalProducts,
-      totalOrders,
-      totalSales,
-      totalEarnings,
-      recentOrders,
-      lowStockProducts,
-      pendingOrders,
-      salesChart
+      totalProducts, totalOrders, totalSales,
+      totalEarnings, recentOrders, lowStockProducts,
+      pendingOrders, salesChart, topProducts, ordersByStatus
     ] = await Promise.all([
-      // Total products
-      Product.countDocuments({ user: sellerId, liveStatus: { $ne: 'archived' } }),
-      
-      // Total orders (containing seller's products)
-      Order.countDocuments({ 
-        'sellers.sellerId': sellerId,
-        createdAt: { $gte: start, $lte: end }
-      }),
-      
-      // Total sales amount
+      Product.countDocuments({ user: req.user.id, liveStatus: { $ne: 'archived' } }),
+      Order.countDocuments({ 'sellers.sellerId': sellerId, createdAt: { $gte: start, $lte: end } }),
       Order.aggregate([
-        { $match: { 
-            'sellers.sellerId': sellerId,
-            status: 'delivered',
-            createdAt: { $gte: start, $lte: end }
-          }},
+        { $match: { 'sellers.sellerId': sellerId, status: 'delivered', createdAt: { $gte: start, $lte: end } } },
         { $unwind: '$sellers' },
         { $match: { 'sellers.sellerId': sellerId } },
         { $group: { _id: null, total: { $sum: '$sellers.subtotal' } } }
       ]),
-      
-      // Total earnings (after commission)
       Order.aggregate([
-        { $match: { 
-            'sellers.sellerId': sellerId,
-            status: 'delivered',
-            createdAt: { $gte: start, $lte: end }
-          }},
+        { $match: { 'sellers.sellerId': sellerId, status: 'delivered', createdAt: { $gte: start, $lte: end } } },
         { $unwind: '$sellers' },
         { $match: { 'sellers.sellerId': sellerId } },
         { $group: { _id: null, total: { $sum: '$sellers.sellerEarnings' } } }
       ]),
-      
-      // Recent orders
       Order.find({ 'sellers.sellerId': sellerId })
-        .populate('user', 'name email')
-        .sort({ createdAt: -1 })
-        .limit(10),
-      
-      // Low stock products
+        .populate('user', 'name email phoneNumber')
+        .populate('items.product', 'name image')
+        .sort({ createdAt: -1 }).limit(10),
       Product.find({
-        user: sellerId,
+        user: req.user.id,
         $expr: { $lte: ['$stock', '$lowStockThreshold'] },
         liveStatus: { $ne: 'archived' }
       }).limit(20),
-      
-      // Pending orders count
-      Order.countDocuments({ 
-        'sellers.sellerId': sellerId,
-        status: 'pending'
-      }),
-      
-      // Daily sales for chart
+      Order.countDocuments({ 'sellers.sellerId': sellerId, status: 'pending' }),
       Order.aggregate([
-        { $match: { 
-            'sellers.sellerId': sellerId,
-            status: 'delivered',
-            createdAt: { $gte: start, $lte: end }
-          }},
+        { $match: { 'sellers.sellerId': sellerId, status: 'delivered', createdAt: { $gte: start, $lte: end } } },
         { $unwind: '$sellers' },
         { $match: { 'sellers.sellerId': sellerId } },
-        { $group: {
-            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-            sales: { $sum: '$sellers.sellerEarnings' },
-            orders: { $sum: 1 }
-          }},
+        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, sales: { $sum: '$sellers.sellerEarnings' }, orders: { $sum: 1 } } },
         { $sort: { _id: 1 } }
+      ]),
+      Order.aggregate([
+        { $match: { 'sellers.sellerId': sellerId, status: 'delivered' } },
+        { $unwind: '$items' },
+        { $match: { 'items.seller': sellerId } },
+        { $group: { _id: '$items.product', totalSold: { $sum: '$items.quantity' }, totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } } } },
+        { $sort: { totalSold: -1 } }, { $limit: 10 },
+        { $lookup: { from: 'products', localField: '_id', foreignField: '_id', as: 'product' } },
+        { $unwind: '$product' }
+      ]),
+      Order.aggregate([
+        { $match: { 'sellers.sellerId': sellerId } },
+        { $group: { _id: '$status', count: { $sum: 1 } } }
       ])
     ]);
 
-    // Calculate totals
-    const totalSalesAmount = totalSales.length > 0 ? totalSales[0].total : 0;
-    const totalEarningsAmount = totalEarnings.length > 0 ? totalEarnings[0].total : 0;
-
-    // Get top products
-    const topProducts = await Order.aggregate([
+    const monthlySales = await Order.aggregate([
       { $match: { 'sellers.sellerId': sellerId, status: 'delivered' } },
-      { $unwind: '$items' },
-      { $match: { 'items.seller': sellerId } },
+      { $unwind: '$sellers' },
+      { $match: { 'sellers.sellerId': sellerId } },
       { $group: {
-          _id: '$items.product',
-          totalSold: { $sum: '$items.quantity' },
-          totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
+          _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
+          total: { $sum: '$sellers.sellerEarnings' },
+          orders: { $sum: 1 }
         }},
-      { $sort: { totalSold: -1 } },
-      { $limit: 10 },
-      { $lookup: {
-          from: 'products',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'product'
-        }},
-      { $unwind: '$product' }
+      { $sort: { _id: 1 } }
     ]);
 
     return res.status(200).json({
@@ -129,518 +85,290 @@ const getSellerStats = async (req, res) => {
         overview: {
           totalProducts,
           totalOrders,
-          totalSales: totalSalesAmount,
-          totalEarnings: totalEarningsAmount,
+          totalSales: totalSales[0]?.total || 0,
+          totalEarnings: totalEarnings[0]?.total || 0,
           pendingOrders,
           lowStockCount: lowStockProducts.length
         },
         recentOrders,
         lowStockProducts,
         topProducts,
-        salesChart
+        salesChart,
+        monthlySales,
+        ordersByStatus
       }
     });
   } catch (error) {
     console.error('Seller stats error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch seller stats' 
-    });
+    return res.status(500).json({ success: false, message: 'Failed to fetch seller stats: ' + error.message });
   }
 };
 
 // @desc    Get seller products
-// @route   GET /api/seller/products
-// @access  Private/Seller
 const getSellerProducts = async (req, res) => {
   try {
-    const { page = 1, limit = 20, status } = req.query;
+    const { page = 1, limit = 20, category, liveStatus, search } = req.query;
 
     let query = { user: req.user.id };
-    if (status) query.liveStatus = status;
+    if (category) query.category = category;
+    if (liveStatus) query.liveStatus = liveStatus;
+    if (search) query.name = { $regex: search, $options: 'i' };
 
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
-    const skip = (pageNum - 1) * limitNum;
 
-    const products = await Product.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum);
-
-    const total = await Product.countDocuments(query);
+    const [products, total] = await Promise.all([
+      Product.find(query).sort({ createdAt: -1 }).skip((pageNum - 1) * limitNum).limit(limitNum),
+      Product.countDocuments(query)
+    ]);
 
     return res.status(200).json({
-      success: true,
-      products,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum)
-      }
+      success: true, products,
+      pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) }
     });
   } catch (error) {
-    console.error('Get seller products error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch products' 
-    });
+    return res.status(500).json({ success: false, message: 'Failed to fetch products: ' + error.message });
   }
 };
 
-// @desc    Create seller product
-// @route   POST /api/seller/products
-// @access  Private/Seller
+// @desc    Create product (seller)
 const createSellerProduct = async (req, res) => {
   try {
-    const { 
-      name, 
-      description, 
-      sellingPrice, 
-      purchasePrice, 
-      unit, 
-      category, 
-      image, 
-      stock, 
-      sku, 
-      brand 
-    } = req.body;
-
-    // Validate required fields
-    if (!name || !description || !sellingPrice || !purchasePrice || !category || !image) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Please provide all required fields' 
-      });
-    }
-
-    // Check SKU uniqueness
-    if (sku && sku.trim() !== '') {
-      const existing = await Product.findOne({ sku });
-      if (existing) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'SKU already exists' 
-        });
-      }
-    }
-
-    const productData = {
-      name: String(name).trim(),
-      description: String(description).trim(),
-      sellingPrice: Number(sellingPrice),
-      purchasePrice: Number(purchasePrice),
-      price: Number(sellingPrice),
-      unit: unit || 'পিস',
-      category: String(category).trim(),
-      brand: brand ? String(brand).trim() : undefined,
-      image: String(image).trim(),
-      stock: Number(stock) || 0,
-      user: req.user.id,
-      liveStatus: 'live',
-      images: [String(image).trim()]
-    };
-
-    if (sku && sku.trim() !== "") {
-      productData.sku = String(sku).trim();
-    }
+    const productData = { ...req.body, user: req.user.id };
+    // FIX: keep price alias in sync
+    if (!productData.price) productData.price = productData.sellingPrice;
 
     const product = await Product.create(productData);
-
-    return res.status(201).json({
-      success: true,
-      message: 'Product created successfully',
-      product
-    });
+    return res.status(201).json({ success: true, product });
   } catch (error) {
-    console.error('Create seller product error:', error);
+    console.error('Create product error:', error);
     if (error.name === 'ValidationError') {
-        const messages = Object.values(error.errors).map(val => val.message);
-        return res.status(400).json({ 
-          success: false, 
-          message: messages.join(', ') 
-        });
+      const messages = Object.values(error.errors).map(v => v.message);
+      return res.status(400).json({ success: false, message: messages.join(', ') });
     }
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Failed to create product' 
-    });
+    return res.status(500).json({ success: false, message: error.message || 'Failed to create product' });
   }
 };
 
-// @desc    Update seller product
-// @route   PUT /api/seller/products/:id
-// @access  Private/Seller
+// @desc    Update product (seller)
 const updateSellerProduct = async (req, res) => {
   try {
-    const product = await Product.findOne({
-      _id: req.params.id,
-      user: req.user.id
-    });
+    const product = await Product.findOne({ _id: req.params.id, user: req.user.id });
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
 
-    if (!product) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Product not found' 
-      });
-    }
+    // FIX: keep price alias in sync
+    if (req.body.sellingPrice) req.body.price = req.body.sellingPrice;
 
-    // Update allowed fields
-    const updateFields = [
-      'name', 'description', 'sellingPrice', 'purchasePrice',
-      'unit', 'category', 'brand', 'image', 'stock', 'sku',
-      'lowStockThreshold', 'tags'
-    ];
-
-    updateFields.forEach(field => {
-      if (req.body[field] !== undefined) {
-        product[field] = req.body[field];
-      }
-    });
-
-    // Update price alias
-    if (req.body.sellingPrice) {
-      product.price = req.body.sellingPrice;
-    }
-
-    await product.save();
-
-    return res.status(200).json({
-      success: true,
-      message: 'Product updated successfully',
-      product
-    });
+    const updated = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    return res.status(200).json({ success: true, product: updated });
   } catch (error) {
-    console.error('Update seller product error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to update product' 
-    });
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(v => v.message);
+      return res.status(400).json({ success: false, message: messages.join(', ') });
+    }
+    return res.status(500).json({ success: false, message: error.message || 'Failed to update product' });
   }
 };
 
-// @desc    Delete seller product
-// @route   DELETE /api/seller/products/:id
-// @access  Private/Seller
+// @desc    Delete product (seller - soft delete)
 const deleteSellerProduct = async (req, res) => {
   try {
-    const product = await Product.findOne({
-      _id: req.params.id,
-      user: req.user.id
-    });
+    const product = await Product.findOne({ _id: req.params.id, user: req.user.id });
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
 
-    if (!product) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Product not found' 
-      });
-    }
-
-    // Soft delete
     product.liveStatus = 'archived';
     await product.save();
 
-    return res.status(200).json({
-      success: true,
-      message: 'Product deleted successfully'
-    });
+    return res.status(200).json({ success: true, message: 'Product archived' });
   } catch (error) {
-    console.error('Delete seller product error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to delete product' 
-    });
+    return res.status(500).json({ success: false, message: 'Failed to delete product: ' + error.message });
   }
 };
 
 // @desc    Get seller orders
-// @route   GET /api/seller/orders
-// @access  Private/Seller
 const getSellerOrders = async (req, res) => {
   try {
+    const sellerId = new mongoose.Types.ObjectId(req.user.id);
     const { page = 1, limit = 20, status } = req.query;
 
-    const query = { 'sellers.sellerId': req.user.id };
+    const query = { 'sellers.sellerId': sellerId };
     if (status) query.status = status;
 
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
-    const skip = (pageNum - 1) * limitNum;
 
-    const orders = await Order.find(query)
-      .populate('user', 'name email phoneNumber')
-      .populate('items.product', 'name image')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum);
-
-    const total = await Order.countDocuments(query);
-
-    // Calculate seller-specific data
-    const ordersWithSellerData = orders.map(order => {
-      const sellerInfo = order.sellers.find(
-        s => s.sellerId.toString() === req.user.id
-      );
-      
-      return {
-        ...order.toObject(),
-        sellerItems: sellerInfo?.items || [],
-        sellerSubtotal: sellerInfo?.subtotal || 0,
-        sellerCommission: sellerInfo?.commission || 0,
-        sellerEarnings: sellerInfo?.sellerEarnings || 0
-      };
-    });
+    const [orders, total] = await Promise.all([
+      Order.find(query)
+        .populate('user', 'name email phoneNumber')
+        .populate('items.product', 'name image sellingPrice')
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum).limit(limitNum),
+      Order.countDocuments(query)
+    ]);
 
     return res.status(200).json({
-      success: true,
-      orders: ordersWithSellerData,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum)
-      }
+      success: true, orders,
+      pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) }
     });
   } catch (error) {
-    console.error('Get seller orders error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch orders' 
-    });
+    return res.status(500).json({ success: false, message: 'Failed to fetch orders: ' + error.message });
   }
 };
 
-// @desc    Update order status (seller)
-// @route   PUT /api/seller/orders/:id
-// @access  Private/Seller
+// @desc    Update seller order status
 const updateSellerOrder = async (req, res) => {
   try {
     const { status, trackingNumber, courier, note } = req.body;
 
     const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
-    if (!order) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Order not found' 
+    const isSeller = order.sellers.some(s => s.sellerId.toString() === req.user.id);
+    if (!isSeller) return res.status(403).json({ success: false, message: 'Not authorized' });
+
+    // FIX: validate allowed status transitions
+    const allowedTransitions = {
+      'pending': ['confirmed', 'cancelled'],
+      'confirmed': ['processing', 'cancelled'],
+      'processing': ['shipped', 'cancelled'],
+      'shipped': ['out-for-delivery'],
+      'out-for-delivery': ['delivered']
+    };
+
+    if (status && allowedTransitions[order.status] && !allowedTransitions[order.status].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot change status from '${order.status}' to '${status}'`
       });
     }
 
-    // Check if seller has items in this order
-    const hasSellerItems = order.sellers.some(
-      s => s.sellerId.toString() === req.user.id
-    );
-
-    if (!hasSellerItems) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Not authorized to update this order' 
-      });
-    }
-
-    // Update fields
-    if (status) {
-      order.status = status;
-      
-      if (status === 'delivered') {
-        order.actualDeliveryDate = new Date();
-      }
-    }
-    
+    if (status) order.status = status;
     if (trackingNumber) order.trackingNumber = trackingNumber;
     if (courier) order.courier = courier;
 
     order.statusHistory.push({
       status: status || order.status,
       date: new Date(),
-      note: note || `Status updated by seller`,
+      note: note || 'Updated by seller',
       updatedBy: req.user.id
     });
 
     await order.save();
-
-    return res.status(200).json({
-      success: true,
-      message: 'Order updated successfully',
-      order
-    });
+    return res.status(200).json({ success: true, message: 'Order updated', order });
   } catch (error) {
-    console.error('Update seller order error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to update order' 
-    });
+    return res.status(500).json({ success: false, message: 'Failed to update order: ' + error.message });
   }
 };
 
 // @desc    Get seller earnings
-// @route   GET /api/seller/earnings
-// @access  Private/Seller
 const getSellerEarnings = async (req, res) => {
   try {
-    const { period = 'month' } = req.query;
+    const sellerId = new mongoose.Types.ObjectId(req.user.id);
+    const { page = 1, limit = 20 } = req.query;
 
-    let groupFormat;
-    let startDate;
+    const earnings = await Order.find({ 'sellers.sellerId': sellerId, status: 'delivered' })
+      .populate('user', 'name')
+      .sort({ createdAt: -1 })
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(parseInt(limit));
 
-    switch (period) {
-      case 'week':
-        groupFormat = '%Y-%m-%d';
-        startDate = new Date(new Date().setDate(new Date().getDate() - 7));
-        break;
-      case 'month':
-        groupFormat = '%Y-%m-%d';
-        startDate = new Date(new Date().setDate(new Date().getDate() - 30));
-        break;
-      case 'year':
-        groupFormat = '%Y-%m';
-        startDate = new Date(new Date().setFullYear(new Date().getFullYear() - 1));
-        break;
-      default:
-        groupFormat = '%Y-%m-%d';
-        startDate = new Date(new Date().setDate(new Date().getDate() - 30));
-    }
-
-    const earnings = await Order.aggregate([
-      { $match: { 
-          'sellers.sellerId': req.user.id,
-          status: 'delivered',
-          createdAt: { $gte: startDate }
-        }},
-      { $unwind: '$sellers' },
-      { $match: { 'sellers.sellerId': req.user.id } },
-      { $group: {
-          _id: { $dateToString: { format: groupFormat, date: '$createdAt' } },
-          earnings: { $sum: '$sellers.sellerEarnings' },
-          commission: { $sum: '$sellers.commission' },
-          orders: { $sum: 1 }
-        }},
-      { $sort: { _id: 1 } }
-    ]);
-
-    // Total earnings
-    const total = await Order.aggregate([
-      { $match: { 
-          'sellers.sellerId': req.user.id,
-          status: 'delivered'
-        }},
-      { $unwind: '$sellers' },
-      { $match: { 'sellers.sellerId': req.user.id } },
-      { $group: {
-          _id: null,
-          totalEarnings: { $sum: '$sellers.sellerEarnings' },
-          totalCommission: { $sum: '$sellers.commission' },
-          totalOrders: { $sum: 1 }
-        }}
+    const [total, pendingWithdrawal] = await Promise.all([
+      Order.aggregate([
+        { $match: { 'sellers.sellerId': sellerId, status: 'delivered' } },
+        { $unwind: '$sellers' },
+        { $match: { 'sellers.sellerId': sellerId } },
+        { $group: { _id: null, totalEarnings: { $sum: '$sellers.sellerEarnings' }, totalCommission: { $sum: '$sellers.commission' }, totalOrders: { $sum: 1 } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { user: req.user.id, type: 'Cash Out', status: 'pending' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ])
     ]);
 
     return res.status(200).json({
       success: true,
       earnings,
-      totals: total[0] || { totalEarnings: 0, totalCommission: 0, totalOrders: 0 }
+      totals: {
+        ...(total[0] || { totalEarnings: 0, totalCommission: 0, totalOrders: 0 }),
+        pendingWithdrawal: pendingWithdrawal[0]?.total || 0
+      }
     });
   } catch (error) {
-    console.error('Get seller earnings error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch earnings' 
-    });
+    return res.status(500).json({ success: false, message: 'Failed to fetch earnings: ' + error.message });
   }
 };
 
 // @desc    Request withdrawal
-// @route   POST /api/seller/withdraw
-// @access  Private/Seller
 const requestWithdrawal = async (req, res) => {
   try {
-    const { amount, paymentMethod, accountDetails } = req.body;
+    const { amount, paymentMethod, accountNumber, accountName } = req.body;
 
     if (!amount || amount < 100) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Minimum withdrawal amount is 100' 
-      });
+      return res.status(400).json({ success: false, message: 'Minimum withdrawal is ৳100' });
     }
 
-    // Check available balance
-    const earnings = await Order.aggregate([
-      { $match: { 
-          'sellers.sellerId': req.user.id,
-          status: 'delivered'
-        }},
-      { $unwind: '$sellers' },
-      { $match: { 'sellers.sellerId': req.user.id } },
-      { $group: {
-          _id: null,
-          totalEarnings: { $sum: '$sellers.sellerEarnings' }
-        }}
+    const sellerId = new mongoose.Types.ObjectId(req.user.id);
+
+    const [earnings, pendingWithdrawals] = await Promise.all([
+      Order.aggregate([
+        { $match: { 'sellers.sellerId': sellerId, status: 'delivered' } },
+        { $unwind: '$sellers' },
+        { $match: { 'sellers.sellerId': sellerId } },
+        { $group: { _id: null, totalEarnings: { $sum: '$sellers.sellerEarnings' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { user: req.user.id, type: 'Cash Out', status: 'pending' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ])
     ]);
 
-    const availableBalance = earnings[0]?.totalEarnings || 0;
+    const availableBalance = (earnings[0]?.totalEarnings || 0) - (pendingWithdrawals[0]?.total || 0);
 
     if (amount > availableBalance) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Insufficient balance' 
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient balance. Available: ৳${availableBalance.toFixed(2)}`
       });
     }
 
-    // Create withdrawal request (as transaction)
     const withdrawal = await Transaction.create({
       type: 'Cash Out',
       amount,
-      description: `Withdrawal request for seller ${req.user.name}`,
+      description: `Withdrawal request - ${paymentMethod}: ${accountNumber}`,
       category: 'withdrawals',
       paymentMethod,
-      metadata: {
-        accountDetails,
-        sellerId: req.user.id,
-        sellerName: req.user.name
-      },
+      // FIX: metadata stored as plain object, not Map, for simpler querying
+      metadata: { accountNumber, accountName, sellerId: req.user.id, sellerName: req.user.name },
       user: req.user.id,
       status: 'pending'
     });
 
-    // Update pending withdrawals
-    const user = await User.findById(req.user.id);
-    user.pendingWithdrawals = (user.pendingWithdrawals || 0) + amount;
-    await user.save();
-
     return res.status(201).json({
       success: true,
-      message: 'Withdrawal request submitted',
+      message: 'Withdrawal request submitted. Processing within 1-3 business days.',
       withdrawal
     });
   } catch (error) {
-    console.error('Withdrawal request error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to submit withdrawal request' 
-    });
+    return res.status(500).json({ success: false, message: 'Failed to submit withdrawal request: ' + error.message });
   }
 };
 
 // @desc    Get seller profile
-// @route   GET /api/seller/profile
-// @access  Private/Seller
 const getSellerProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
-      .select('-password -otp -otpExpire -resetPasswordToken -resetPasswordExpires -cart -favorites');
+      .select('-password -otp -otpExpire -resetPasswordToken');
 
-    // Get seller stats
-    const [
-      productCount,
-      orderCount,
-      totalEarnings
-    ] = await Promise.all([
-      Product.countDocuments({ user: req.user.id, liveStatus: { $ne: 'archived' } }),
-      Order.countDocuments({ 'sellers.sellerId': req.user.id }),
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const sellerId = new mongoose.Types.ObjectId(req.user.id);
+    const [productCount, orderCount, totalEarnings] = await Promise.all([
+      Product.countDocuments({ user: req.user.id }),
+      Order.countDocuments({ 'sellers.sellerId': sellerId }),
       Order.aggregate([
-        { $match: { 'sellers.sellerId': req.user.id, status: 'delivered' } },
+        { $match: { 'sellers.sellerId': sellerId, status: 'delivered' } },
         { $unwind: '$sellers' },
-        { $match: { 'sellers.sellerId': req.user.id } },
+        { $match: { 'sellers.sellerId': sellerId } },
         { $group: { _id: null, total: { $sum: '$sellers.sellerEarnings' } } }
       ])
     ]);
@@ -657,176 +385,173 @@ const getSellerProfile = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get seller profile error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch seller profile' 
-    });
+    return res.status(500).json({ success: false, message: 'Failed to fetch seller profile: ' + error.message });
   }
 };
 
-// @desc    Get sales (seller)
-// @route   GET /api/seller/sales
-// @access  Private/Seller
 const getSellerSales = async (req, res) => {
   try {
-    const sales = await Sale.find({ user: req.user.id }).populate('product', 'name').sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, sales });
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    const [sales, total] = await Promise.all([
+      Sale.find({ user: req.user.id })
+        .populate('product', 'name')
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum),
+      Sale.countDocuments({ user: req.user.id })
+    ]);
+
+    return res.status(200).json({
+      success: true, sales,
+      pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) }
+    });
   } catch (error) {
-    console.error('Get sales error:', error);
-    return res.status(500).json({ success: false, message: 'Failed to fetch sales' });
+    return res.status(500).json({ success: false, message: 'Failed to fetch sales: ' + error.message });
   }
 };
 
-// @desc    Create sale (seller)
-// @route   POST /api/seller/sales
-// @access  Private/Seller
 const createSellerSale = async (req, res) => {
   try {
     const { product, quantity, totalAmount, paymentMethod, description } = req.body;
     const productInfo = await Product.findOne({ _id: product, user: req.user.id });
     if (!productInfo) return res.status(404).json({ success: false, message: 'Product not found or not yours' });
 
+    if (productInfo.stock < quantity) {
+      return res.status(400).json({ success: false, message: `Only ${productInfo.stock} units available` });
+    }
+
     const purchasePrice = productInfo.purchasePrice * quantity;
     const profit = totalAmount - purchasePrice;
 
     const sale = await Sale.create({
-      product,
-      quantity,
+      product, quantity,
       unitPrice: totalAmount / quantity,
-      totalAmount,
-      purchasePrice,
-      profit,
-      paymentMethod,
-      notes: description,
+      totalAmount, purchasePrice, profit,
+      paymentMethod, notes: description,
       user: req.user.id
     });
-    
-    productInfo.stock -= quantity;
-    await productInfo.save();
+
+    await Product.findByIdAndUpdate(product, { $inc: { stock: -quantity, soldCount: quantity } });
 
     return res.status(201).json({ success: true, sale });
   } catch (error) {
-    console.error('Create sale error:', error);
-    return res.status(500).json({ success: false, message: error.message || 'Failed to create sale' });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get purchases (seller)
-// @route   GET /api/seller/purchases
-// @access  Private/Seller
 const getSellerPurchases = async (req, res) => {
   try {
-    const purchases = await Purchase.find({ user: req.user.id }).populate('product', 'name').sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, purchases });
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    const [purchases, total] = await Promise.all([
+      Purchase.find({ user: req.user.id })
+        .populate('product', 'name')
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum),
+      Purchase.countDocuments({ user: req.user.id })
+    ]);
+
+    return res.status(200).json({
+      success: true, purchases,
+      pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) }
+    });
   } catch (error) {
-    console.error('Get purchases error:', error);
-    return res.status(500).json({ success: false, message: 'Failed to fetch purchases' });
+    return res.status(500).json({ success: false, message: 'Failed to fetch purchases: ' + error.message });
   }
 };
 
-// @desc    Create purchase (seller)
-// @route   POST /api/seller/purchases
-// @access  Private/Seller
 const createSellerPurchase = async (req, res) => {
   try {
-    const { product, quantity, totalAmount, description } = req.body;
+    const { product, quantity, totalAmount, description, supplierName, supplierPhone, paidAmount } = req.body;
     const productInfo = await Product.findOne({ _id: product, user: req.user.id });
-    if (!productInfo) return res.status(404).json({ success: false, message: 'Product not found or not yours' });
+    if (!productInfo) return res.status(404).json({ success: false, message: 'Product not found' });
+
+    const paid = paidAmount !== undefined ? Number(paidAmount) : totalAmount;
+    const paymentStatus = paid >= totalAmount ? 'paid' : paid > 0 ? 'partial' : 'pending';
 
     const purchase = await Purchase.create({
-      product,
-      quantity,
+      product, quantity,
       unitPrice: totalAmount / quantity,
       totalAmount,
+      supplier: { name: supplierName, phone: supplierPhone },
       notes: description,
+      paidAmount: paid,
+      paymentStatus,
       user: req.user.id
     });
-    
-    productInfo.stock += Number(quantity);
-    await productInfo.save();
+
+    await Product.findByIdAndUpdate(product, { $inc: { stock: quantity } });
 
     return res.status(201).json({ success: true, purchase });
   } catch (error) {
-    console.error('Create purchase error:', error);
-    return res.status(500).json({ success: false, message: 'Failed to create purchase' });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get transactions (seller)
-// @route   GET /api/seller/transactions
-// @access  Private/Seller
 const getSellerTransactions = async (req, res) => {
   try {
-    const transactions = await Transaction.find({ user: req.user.id }).sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, transactions });
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    const [transactions, total] = await Promise.all([
+      Transaction.find({ user: req.user.id })
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum),
+      Transaction.countDocuments({ user: req.user.id })
+    ]);
+
+    return res.status(200).json({
+      success: true, transactions,
+      pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) }
+    });
   } catch (error) {
-    console.error('Get transactions error:', error);
-    return res.status(500).json({ success: false, message: 'Failed to fetch transactions' });
+    return res.status(500).json({ success: false, message: 'Failed to fetch transactions: ' + error.message });
   }
 };
 
-// @desc    Create transaction (seller)
-// @route   POST /api/seller/transactions
-// @access  Private/Seller
 const createSellerTransaction = async (req, res) => {
   try {
-    const { type, amount, description, reference, paymentMethod } = req.body;
-
-    const transaction = await Transaction.create({
-      type,
-      amount,
-      description,
-      reference,
-      paymentMethod,
-      user: req.user.id,
-      status: 'completed'
-    });
-
+    const transaction = await Transaction.create({ ...req.body, user: req.user.id, status: 'completed' });
     return res.status(201).json({ success: true, transaction });
   } catch (error) {
-    console.error('Create transaction error:', error);
-    return res.status(500).json({ success: false, message: 'Failed to create transaction' });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Get customers of seller (read-only)
-// @route   GET /api/seller/customers
-// @access  Private/Seller
 const getSellerCustomers = async (req, res) => {
   try {
-    const orders = await Order.find({ 'sellers.sellerId': req.user.id }).populate('user', 'name email phoneNumber');
+    const sellerId = new mongoose.Types.ObjectId(req.user.id);
+    const orders = await Order.find({ 'sellers.sellerId': sellerId })
+      .populate('user', 'name email phoneNumber profilePic');
+
     const customersMap = new Map();
     orders.forEach(o => {
-      if (o.user && !customersMap.has(o.user._id.toString())) {
-        customersMap.set(o.user._id.toString(), o.user);
+      if (!o.user) return;
+      const key = o.user._id.toString();
+      if (!customersMap.has(key)) {
+        customersMap.set(key, { ...o.user.toObject(), orderCount: 1 });
+      } else {
+        customersMap.get(key).orderCount++;
       }
     });
 
     return res.status(200).json({ success: true, customers: Array.from(customersMap.values()) });
   } catch (error) {
-    console.error('Get customers error:', error);
-    return res.status(500).json({ success: false, message: 'Failed to fetch customers' });
+    return res.status(500).json({ success: false, message: 'Failed to fetch customers: ' + error.message });
   }
 };
 
-// Export all functions
 module.exports = {
-  getSellerStats,
-  getSellerProducts,
-  createSellerProduct,
-  updateSellerProduct,
-  deleteSellerProduct,
-  getSellerOrders,
-  updateSellerOrder,
-  getSellerEarnings,
-  requestWithdrawal,
-  getSellerProfile,
-  getSellerSales,
-  createSellerSale,
-  getSellerPurchases,
-  createSellerPurchase,
-  getSellerTransactions,
-  createSellerTransaction,
-  getSellerCustomers
+  getSellerStats, getSellerProducts, createSellerProduct, updateSellerProduct, deleteSellerProduct,
+  getSellerOrders, updateSellerOrder, getSellerEarnings, requestWithdrawal, getSellerProfile,
+  getSellerSales, createSellerSale, getSellerPurchases, createSellerPurchase,
+  getSellerTransactions, createSellerTransaction, getSellerCustomers
 };

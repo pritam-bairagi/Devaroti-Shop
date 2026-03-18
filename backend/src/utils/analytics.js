@@ -3,7 +3,7 @@ const User = require('../models/User');
 const Product = require('../models/Product');
 
 // Get dashboard statistics
-exports.getDashboardStats = async (startDate, endDate) => {
+const getDashboardStats = async (startDate, endDate) => {
   try {
     const dailyStats = await Order.aggregate([
       { $match: { 
@@ -27,7 +27,7 @@ exports.getDashboardStats = async (startDate, endDate) => {
 };
 
 // Calculate revenue
-exports.calculateRevenue = async (startDate, endDate) => {
+const calculateRevenue = async (startDate, endDate) => {
   try {
     const result = await Order.aggregate([
       { $match: { 
@@ -50,7 +50,7 @@ exports.calculateRevenue = async (startDate, endDate) => {
 };
 
 // Get top products
-exports.getTopProducts = async (limit = 10) => {
+const getTopProducts = async (limit = 10) => {
   try {
     const topProducts = await Order.aggregate([
       { $match: { status: 'delivered' } },
@@ -77,3 +77,5 @@ exports.getTopProducts = async (limit = 10) => {
     return [];
   }
 };
+
+module.exports = { getDashboardStats, calculateRevenue, getTopProducts };

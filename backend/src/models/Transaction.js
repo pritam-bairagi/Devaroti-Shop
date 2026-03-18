@@ -3,8 +3,7 @@ const mongoose = require('mongoose');
 const transactionSchema = new mongoose.Schema({
   transactionNumber: {
     type: String,
-    unique: true,
-    required: true
+    unique: true
   },
   
   type: {
@@ -90,18 +89,16 @@ const transactionSchema = new mongoose.Schema({
 transactionSchema.index({ date: -1 });
 transactionSchema.index({ type: 1, date: -1 });
 
-// Generate transaction number
-transactionSchema.pre('save', function(next) {
+// Generate transaction number BEFORE validation (pre-validate runs before required checks)
+transactionSchema.pre('validate', function(next) {
   if (!this.transactionNumber) {
     const date = new Date();
     const year = date.getFullYear().toString().slice(-2);
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const day = date.getDate().toString().padStart(2, '0');
     const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    
     this.transactionNumber = `TXN-${year}${month}${day}-${random}`;
   }
-  
   next();
 });
 

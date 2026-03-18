@@ -4,41 +4,41 @@ const { body } = require('express-validator');
 const userController = require('../controllers/userController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
-// Cart validation
+// Validation rules
 const cartValidation = [
   body('productId').notEmpty().withMessage('Product ID is required'),
   body('quantity').optional().isInt({ min: 1 }).withMessage('Quantity must be at least 1')
 ];
 
-// Profile validation
 const profileValidation = [
-  body('name').optional().trim().notEmpty(),
-  body('email').optional().isEmail().normalizeEmail(),
+  body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
+  body('email').optional().isEmail().normalizeEmail().withMessage('Valid email required'),
   body('phoneNumber').optional(),
   body('address').optional()
 ];
 
-// Routes
+// Profile
 router.get('/profile', protect, userController.getProfile);
 router.put('/profile', protect, profileValidation, userController.updateProfile);
 
-// Cart routes
+// Cart — FIX: DELETE /cart must come BEFORE DELETE /cart/:productId
+// to avoid Express matching 'cart' as a productId param
+router.delete('/cart', protect, userController.clearCart);
 router.post('/cart', protect, cartValidation, userController.addToCart);
 router.put('/cart/:productId', protect, userController.updateCartItem);
 router.delete('/cart/:productId', protect, userController.removeFromCart);
-router.delete('/cart', protect, userController.clearCart);
 
-// Favorites routes
+// Favorites
 router.get('/favorites', protect, userController.getFavorites);
 router.post('/favorites/:productId', protect, userController.toggleFavorite);
 
-// Address routes
+// Address
 router.post('/address', protect, userController.addAddress);
 
 // Account management
 router.delete('/account', protect, userController.deleteAccount);
 
-// Admin only routes
+// Admin only — must be LAST to avoid matching other routes as :id
 router.get('/:id', protect, admin, userController.getUserById);
 
 module.exports = router;

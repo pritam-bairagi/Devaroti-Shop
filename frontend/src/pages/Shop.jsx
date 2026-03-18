@@ -31,8 +31,8 @@ const Stars = ({ rating = 4.5, size = "text-sm", showNumber = false, count }) =>
       <span className={`inline-flex items-center gap-0.5 ${size}`}>
         {[...Array(5)].map((_, i) => (
           <span key={i} className={
-            i < full ? "text-orange-400" : 
-            (i === full && half ? "text-orange-300" : "text-gray-300")
+            i < full ? "text-orange-400" :
+              (i === full && half ? "text-orange-300" : "text-gray-300")
           }>★</span>
         ))}
       </span>
@@ -68,23 +68,7 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
         }
       } catch (error) {
         console.error('Error fetching reviews:', error);
-        // Fallback to mock reviews
-        setReviews([
-          {
-            _id: '1',
-            user: { name: 'Rahim Khan' },
-            rating: 5,
-            comment: 'Excellent product! Very happy with the quality.',
-            createdAt: new Date().toISOString()
-          },
-          {
-            _id: '2',
-            user: { name: 'Karima Begum' },
-            rating: 4,
-            comment: 'Good product, delivery was fast.',
-            createdAt: new Date(Date.now() - 86400000).toISOString()
-          }
-        ]);
+        setReviews([]); // Set empty reviews on error
       }
     };
     fetchReviews();
@@ -100,15 +84,11 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
         }
       } catch (error) {
         console.error('Error fetching related products:', error);
-        // Fallback to local filtering
-        const related = allProducts
-          .filter(p => p._id !== product._id && p.category === product.category)
-          .slice(0, 4);
-        setRelatedProducts(related);
+        setRelatedProducts([]); // Set empty related products on error
       }
     };
     fetchRelated();
-  }, [product._id, product.category, allProducts]);
+  }, [product._id, product.category]);
 
   const handleAddReview = async () => {
     if (!user) {
@@ -126,7 +106,7 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
       const response = await axios.post(`/api/products/${product._id}/reviews`, newReview, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      
+
       if (response.data.success) {
         setReviews([response.data.review, ...reviews]);
         setNewReview({ rating: 5, comment: '' });
@@ -157,7 +137,7 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
       }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      
+
       if (response.data.success) {
         toast.success('Added to cart');
         setUser({ ...user, cart: response.data.cart });
@@ -178,7 +158,7 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
       const response = await axios.post(`/api/users/favorites/${product._id}`, {}, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      
+
       if (response.data.success) {
         setUser({ ...user, favorites: response.data.favorites });
         onWishlist(product._id);
@@ -190,16 +170,16 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
   };
 
   // Calculate average rating
-  const avgRating = reviews.length > 0 
-    ? reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length 
-    : product.rating || 4.5;
+  const avgRating = reviews.length > 0
+    ? reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length
+    : product.rating || 0;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-sm text-gray-500 mb-6">
-          <button 
+          <button
             onClick={onBack}
             className="flex items-center gap-1 text-orange-500 hover:text-orange-600 font-semibold transition group"
           >
@@ -223,7 +203,7 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
                 className="w-full h-full object-contain p-4"
                 onError={(e) => e.target.src = 'https://via.placeholder.com/500x500?text=Product+Image'}
               />
-              
+
               {discount > 0 && (
                 <span className="absolute top-4 right-4 bg-orange-500 text-white text-sm font-bold px-3 py-1.5 rounded-full shadow-lg z-10">
                   -{discount}%
@@ -247,13 +227,13 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
               {/* Image Navigation Arrows */}
               {images.length > 1 && (
                 <>
-                  <button 
+                  <button
                     onClick={() => setSelectedImage(i => (i - 1 + images.length) % images.length)}
                     className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/90 rounded-full shadow-lg flex items-center justify-center hover:bg-white transition opacity-0 group-hover:opacity-100 z-10"
                   >
                     <ChevronLeft size={20} className="text-gray-600" />
                   </button>
-                  <button 
+                  <button
                     onClick={() => setSelectedImage(i => (i + 1) % images.length)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/90 rounded-full shadow-lg flex items-center justify-center hover:bg-white transition opacity-0 group-hover:opacity-100 z-10"
                   >
@@ -267,12 +247,11 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
             {images.length > 1 && (
               <div className="flex gap-2 overflow-x-auto pb-2">
                 {images.map((img, idx) => (
-                  <button 
-                    key={idx} 
+                  <button
+                    key={idx}
                     onClick={() => setSelectedImage(idx)}
-                    className={`flex-shrink-0 w-20 h-20 rounded-xl border-2 overflow-hidden transition-all ${
-                      selectedImage === idx ? "border-orange-500 shadow-md" : "border-gray-200 hover:border-gray-300"
-                    }`}
+                    className={`flex-shrink-0 w-20 h-20 rounded-xl border-2 overflow-hidden transition-all ${selectedImage === idx ? "border-orange-500 shadow-md" : "border-gray-200 hover:border-gray-300"
+                      }`}
                   >
                     <img src={img} alt={`thumb ${idx}`} className="w-full h-full object-cover" />
                   </button>
@@ -302,17 +281,17 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
                 )}
               </div>
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3 leading-tight">{product.name}</h1>
-              
+
               <div className="flex items-center gap-4 mb-4">
                 <Stars rating={avgRating} size="text-lg" showNumber count={reviews.length} />
-                <button 
+                <button
                   onClick={() => setActiveTab("reviews")}
                   className="text-sm text-orange-500 hover:text-orange-600 font-medium"
                 >
                   {reviews.length} Reviews
                 </button>
               </div>
-              
+
               {/* Seller Information */}
               <div className="bg-gradient-to-r from-orange-50 to-amber-50 p-4 rounded-xl border border-orange-100">
                 <div className="flex items-center gap-3">
@@ -386,14 +365,14 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
                 <div className="flex items-center gap-4">
                   <span className="text-gray-700 font-medium">Quantity:</span>
                   <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden">
-                    <button 
+                    <button
                       onClick={() => setQuantity(q => Math.max(1, q - 1))}
                       className="w-10 h-10 flex items-center justify-center hover:bg-orange-50 transition text-orange-500"
                     >
                       <Minus size={16} />
                     </button>
                     <span className="w-12 text-center font-bold text-gray-800">{quantity}</span>
-                    <button 
+                    <button
                       onClick={() => setQuantity(q => q + 1)}
                       className="w-10 h-10 flex items-center justify-center hover:bg-orange-50 transition text-orange-500"
                     >
@@ -411,22 +390,20 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
                 <button
                   onClick={handleAddToCart}
                   disabled={!product.inStock}
-                  className={`flex-1 font-bold py-4 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 text-lg ${
-                    product.inStock 
-                      ? "bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-orange-200" 
+                  className={`flex-1 font-bold py-4 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 text-lg ${product.inStock
+                      ? "bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-orange-200"
                       : "bg-gray-200 text-gray-500 cursor-not-allowed"
-                  }`}
+                    }`}
                 >
                   <ShoppingCart size={22} />
                   {product.inStock ? "Add to Cart" : "Out of Stock"}
                 </button>
                 <button
                   onClick={handleToggleWishlist}
-                  className={`w-14 h-14 rounded-xl border-2 flex items-center justify-center transition-all ${
-                    wishlisted 
-                      ? 'border-orange-500 bg-orange-50 text-orange-500' 
+                  className={`w-14 h-14 rounded-xl border-2 flex items-center justify-center transition-all ${wishlisted
+                      ? 'border-orange-500 bg-orange-50 text-orange-500'
                       : 'border-gray-200 text-gray-400 hover:border-orange-300 hover:text-orange-400'
-                  }`}
+                    }`}
                 >
                   <Heart size={22} fill={wishlisted ? "currentColor" : "none"} />
                 </button>
@@ -461,18 +438,17 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
               { id: "specifications", label: "Specifications" },
               { id: "reviews", label: `Reviews (${reviews.length})` }
             ].map(tab => (
-              <button 
-                key={tab.id} 
+              <button
+                key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-6 py-4 text-sm font-bold capitalize transition border-b-2 -mb-px whitespace-nowrap ${
-                  activeTab === tab.id ? "border-orange-500 text-orange-500" : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
+                className={`px-6 py-4 text-sm font-bold capitalize transition border-b-2 -mb-px whitespace-nowrap ${activeTab === tab.id ? "border-orange-500 text-orange-500" : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
               >
                 {tab.label}
               </button>
             ))}
           </div>
-          
+
           <div className="p-6">
             {/* Description Tab */}
             {activeTab === "description" && (
@@ -481,7 +457,7 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
                 <p className="text-gray-600 leading-relaxed whitespace-pre-line">
                   {product.description || "No description available."}
                 </p>
-                
+
                 {product.features && product.features.length > 0 && (
                   <div className="mt-6">
                     <h4 className="font-bold text-gray-800 mb-2">Key Features:</h4>
@@ -525,7 +501,7 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
                       <p className="text-xs text-gray-500 mt-1">Based on {reviews.length} reviews</p>
                     </div>
                     <div className="flex-1">
-                      {[5,4,3,2,1].map(star => {
+                      {[5, 4, 3, 2, 1].map(star => {
                         const count = reviews.filter(r => Math.floor(r.rating) === star).length;
                         const percentage = (count / reviews.length) * 100;
                         return (
@@ -551,9 +527,8 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
                         <button
                           key={r}
                           onClick={() => setNewReview({ ...newReview, rating: r })}
-                          className={`text-2xl transition hover:scale-110 ${
-                            r <= newReview.rating ? 'text-orange-400' : 'text-gray-300'
-                          }`}
+                          className={`text-2xl transition hover:scale-110 ${r <= newReview.rating ? 'text-orange-400' : 'text-gray-300'
+                            }`}
                         >
                           ★
                         </button>
@@ -615,7 +590,7 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
                           </span>
                         </div>
                         <p className="text-gray-600 text-sm ml-13">{review.comment}</p>
-                        
+
                         {/* Review Images if any */}
                         {review.images && review.images.length > 0 && (
                           <div className="flex gap-2 mt-2 ml-13">
@@ -649,9 +624,9 @@ function ProductDetailPage({ product, allProducts, onAddCart, onWishlist, wishli
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {relatedProducts.map(p => (
-                <RelatedProductCard 
-                  key={p._id} 
-                  product={p} 
+                <RelatedProductCard
+                  key={p._id}
+                  product={p}
                   onAddCart={onAddCart}
                   onWishlist={onWishlist}
                   wishlisted={wishlisted}
@@ -672,9 +647,9 @@ function RelatedProductCard({ product, onAddCart, onWishlist, wishlisted }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg transition-all group">
       <div className="bg-gray-50 p-4 flex items-center justify-center h-36 relative">
-        <img 
-          src={product.image || '/placeholder.png'} 
-          alt={product.name} 
+        <img
+          src={product.image || '/placeholder.png'}
+          alt={product.name}
           className="max-h-24 object-contain group-hover:scale-105 transition"
         />
         {discount > 0 && (
@@ -717,7 +692,7 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
   const handleAddToCart = async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (!user) {
       toast.error('Please login to add items to cart');
       return;
@@ -735,7 +710,7 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
       }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      
+
       if (response.data.success) {
         toast.success('Added to cart');
         setUser({ ...user, cart: response.data.cart });
@@ -749,7 +724,7 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
   const handleToggleWishlist = async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (!user) {
       toast.error('Please login to add to wishlist');
       return;
@@ -759,7 +734,7 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
       const response = await axios.post(`/api/users/favorites/${product._id}`, {}, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      
+
       if (response.data.success) {
         setUser({ ...user, favorites: response.data.favorites });
         onWishlist(product._id);
@@ -778,13 +753,13 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
   if (view === "list") {
     return (
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg transition-all flex">
-        <div 
-          onClick={() => onProductClick(product)} 
+        <div
+          onClick={() => onProductClick(product)}
           className="w-36 sm:w-48 flex-shrink-0 bg-gray-50 flex items-center justify-center relative cursor-pointer p-4"
         >
-          <img 
-            src={product.image || '/placeholder.png'} 
-            alt={product.name} 
+          <img
+            src={product.image || '/placeholder.png'}
+            alt={product.name}
             className="max-h-24 object-contain"
             onError={(e) => e.target.src = 'https://via.placeholder.com/200x200?text=Product'}
           />
@@ -801,13 +776,13 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
             </div>
           )}
         </div>
-        
+
         <div className="flex-1 p-4">
           <div className="flex items-start justify-between mb-2">
             <div>
               <p className="text-xs text-orange-500 font-semibold mb-1">{product.category}</p>
-              <h3 
-                onClick={() => onProductClick(product)} 
+              <h3
+                onClick={() => onProductClick(product)}
                 className="font-bold text-gray-900 cursor-pointer hover:text-orange-500 transition text-lg"
               >
                 {product.name}
@@ -815,18 +790,17 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
             </div>
             <button
               onClick={handleToggleWishlist}
-              className={`p-2 rounded-lg border transition ${
-                isFavorite ? "bg-orange-50 border-orange-300 text-orange-500" : "border-gray-200 text-gray-400 hover:border-orange-300"
-              }`}
+              className={`p-2 rounded-lg border transition ${isFavorite ? "bg-orange-50 border-orange-300 text-orange-500" : "border-gray-200 text-gray-400 hover:border-orange-300"
+                }`}
             >
               <Heart size={18} fill={isFavorite ? "currentColor" : "none"} />
             </button>
           </div>
-          
+
           <p className="text-sm text-gray-500 mb-2">by {product.sellerName || 'Official Store'}</p>
-          
+
           <Stars rating={product.rating || 4.5} showNumber count={product.reviews} />
-          
+
           {product.specs && (
             <div className="flex flex-wrap gap-2 my-3">
               {Object.entries(product.specs).slice(0, 3).map(([key, value]) => (
@@ -836,7 +810,7 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
               ))}
             </div>
           )}
-          
+
           <div className="flex items-center justify-between mt-3">
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold text-orange-500">{formatPrice(product.price)}</span>
@@ -844,7 +818,7 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
                 <span className="text-sm text-gray-400 line-through">{formatPrice(product.oldPrice)}</span>
               )}
             </div>
-            <button 
+            <button
               onClick={handleAddToCart}
               disabled={!product.inStock}
               className="px-6 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-sm font-bold rounded-lg hover:from-orange-600 hover:to-amber-600 transition disabled:opacity-50"
@@ -872,7 +846,7 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
           </span>
         )}
       </div>
-      
+
       {discount > 0 && (
         <span className="absolute top-2 right-2 bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded-full z-10">
           -{discount}%
@@ -880,8 +854,8 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
       )}
 
       {/* Image Container */}
-      <div 
-        onClick={() => onProductClick(product)} 
+      <div
+        onClick={() => onProductClick(product)}
         className="bg-gray-50 p-4 flex items-center justify-center h-48 cursor-pointer relative"
       >
         <img
@@ -890,18 +864,17 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
           className="max-h-36 object-contain group-hover:scale-105 transition duration-300"
           onError={(e) => e.target.src = 'https://via.placeholder.com/200x200?text=Product'}
         />
-        
+
         {/* Quick Action Buttons */}
         <div className={`absolute top-2 left-2 flex flex-col gap-1.5 transition-all duration-200 ${hovered ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2"}`}>
-          <button 
+          <button
             onClick={handleToggleWishlist}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center shadow-md transition ${
-              isFavorite ? "bg-orange-500 text-white" : "bg-white text-gray-500 hover:bg-orange-50 hover:text-orange-500"
-            }`}
+            className={`w-8 h-8 rounded-lg flex items-center justify-center shadow-md transition ${isFavorite ? "bg-orange-500 text-white" : "bg-white text-gray-500 hover:bg-orange-50 hover:text-orange-500"
+              }`}
           >
             <Heart size={14} fill={isFavorite ? "white" : "none"} />
           </button>
-          <button 
+          <button
             onClick={(e) => { e.stopPropagation(); onProductClick(product); }}
             className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-md hover:bg-orange-50 hover:text-orange-500 transition text-gray-500"
           >
@@ -922,20 +895,20 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
       {/* Product Info */}
       <div className="p-3">
         <p className="text-gray-400 text-[10px] font-bold uppercase mb-1">{product.category}</p>
-        <h5 
-          onClick={() => onProductClick(product)} 
+        <h5
+          onClick={() => onProductClick(product)}
           className="text-gray-800 font-bold text-sm line-clamp-2 min-h-[40px] cursor-pointer hover:text-orange-500 transition"
         >
           {product.name}
         </h5>
-        
+
         <p className="text-orange-500 text-xs font-medium truncate mb-1">{product.sellerName || 'Official Store'}</p>
-        
+
         <div className="flex items-center justify-between mb-2">
           <Stars rating={product.rating || 4.5} size="text-xs" />
           <span className="text-xs text-gray-400">({product.reviews || 0})</span>
         </div>
-        
+
         <div className="flex items-center justify-between">
           <div>
             {product.oldPrice && (
@@ -943,7 +916,7 @@ function ProductCard({ product, view, onAddCart, onWishlist, wishlisted, onProdu
             )}
             <p className="text-orange-500 font-bold text-lg">{formatPrice(product.price)}</p>
           </div>
-          
+
           <button
             onClick={handleAddToCart}
             disabled={!product.inStock}
@@ -984,7 +957,23 @@ export default function Shop() {
   const navigate = useNavigate();
   const PER_PAGE = 12;
 
-  // Fetch products
+  // Check if there are any products in the database on initial load
+  useEffect(() => {
+    const checkProducts = async () => {
+      try {
+        const response = await axios.get('/api/products?limit=1');
+        if (!response.data.success || response.data.products.length === 0) {
+          toast.info('No products available yet. Check back later!');
+        }
+      } catch (error) {
+        console.log('No products in database');
+      }
+    };
+
+    checkProducts();
+  }, []);
+
+  // Fetch products - ONLY from database, NO mock data
   useEffect(() => {
     const fetchProducts = async () => {
       setLoading(true);
@@ -1002,8 +991,8 @@ export default function Shop() {
             limit: PER_PAGE
           }
         });
-        
-        if (response.data.success) {
+
+        if (response.data.success && response.data.products.length > 0) {
           const productsWithDetails = response.data.products.map(product => ({
             ...product,
             inStock: product.inStock ?? product.quantity > 0 ?? true,
@@ -1020,80 +1009,26 @@ export default function Shop() {
             specs: product.specs || {},
             features: product.features || []
           }));
-          
+
           setProducts(productsWithDetails);
         } else {
-          // Fallback to mock data
-          setProducts(generateMockProducts());
+          // If API returns no products, show empty state
+          console.log('No products found in database');
+          setProducts([]); // Set empty array - NO MOCK DATA
         }
       } catch (err) {
         console.error('Error fetching products:', err);
-        // Fallback to mock data
-        setProducts(generateMockProducts());
+        // Instead of falling back to mock data, show empty state with error message
+        setProducts([]);
+        setError('Failed to load products. Please try again later.');
+        toast.error('Failed to load products. Please try again later.');
       } finally {
         setLoading(false);
       }
     };
-    
+
     fetchProducts();
   }, [searchQuery, filters, priceRange, sortBy, page]);
-
-  // Generate mock products for demo
-  const generateMockProducts = () => {
-    const mockProducts = [];
-    const categories = ['Electronics', 'Fashion', 'Books', 'Home & Living'];
-    const names = [
-      'Smartphone X Pro', 'Laptop Ultra', 'Wireless Headphones', 'Smart Watch',
-      'Designer Dress', 'Running Shoes', 'Leather Bag', 'Sunglasses',
-      'Fiction Novel', 'Cookbook', 'Kids Story Book', 'Dictionary',
-      'Coffee Maker', 'Bed Sheet Set', 'Wall Clock', 'Table Lamp'
-    ];
-    
-    for (let i = 1; i <= 24; i++) {
-      const category = categories[Math.floor(Math.random() * categories.length)];
-      const name = names[Math.floor(Math.random() * names.length)] + ' ' + i;
-      const price = Math.floor(Math.random() * 5000) + 500;
-      const oldPrice = Math.random() > 0.5 ? price + Math.floor(Math.random() * 1000) : null;
-      
-      mockProducts.push({
-        _id: i.toString(),
-        name,
-        category,
-        price,
-        oldPrice,
-        image: `https://via.placeholder.com/300x300?text=Product+${i}`,
-        images: [
-          `https://via.placeholder.com/500x500?text=Image+1`,
-          `https://via.placeholder.com/500x500?text=Image+2`,
-          `https://via.placeholder.com/500x500?text=Image+3`,
-          `https://via.placeholder.com/500x500?text=Image+4`,
-        ],
-        rating: (Math.random() * 2) + 3,
-        reviews: Math.floor(Math.random() * 100) + 10,
-        inStock: Math.random() > 0.2,
-        quantity: Math.floor(Math.random() * 50) + 1,
-        sellerName: 'Official Store',
-        sellerRating: 4.5,
-        sellerReviews: 128,
-        verifiedSeller: true,
-        brand: 'Premium Brand',
-        description: 'This is a great product with amazing features. It comes with warranty and excellent customer support.',
-        specs: {
-          'color': ['Black', 'White', 'Blue'][Math.floor(Math.random() * 3)],
-          'weight': '500g',
-          'material': 'Premium Quality',
-          'warranty': '1 Year'
-        },
-        features: [
-          'High quality materials',
-          'Durable construction',
-          'Easy to use',
-          'Great value for money'
-        ]
-      });
-    }
-    return mockProducts;
-  };
 
   const handleLogout = async () => {
     await logout();
@@ -1103,7 +1038,7 @@ export default function Shop() {
   // Filter and sort products (client-side as backup)
   const filteredProducts = useMemo(() => {
     let list = [...products];
-    
+
     // Price range filter
     list = list.filter(p => p.price >= priceRange[0] && p.price <= priceRange[1]);
 
@@ -1153,7 +1088,7 @@ export default function Shop() {
         });
         break;
     }
-    
+
     return list;
   }, [products, filters, priceRange, sortBy]);
 
@@ -1165,7 +1100,7 @@ export default function Shop() {
   };
 
   const toggleWishlist = (id) => {
-    setWishlist(prev => 
+    setWishlist(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
   };
@@ -1226,9 +1161,9 @@ export default function Shop() {
         onMobileMenuOpen={() => setIsMobileMenuOpen(true)}
       />
 
-      <MobileMenu 
-        open={mobileMenuOpen} 
-        onClose={() => setMobileMenuOpen(false)} 
+      <MobileMenu
+        open={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
         categories={categories}
         navLinks={NAV_LINKS}
         onCategoryClick={handleCategoryClick}
@@ -1265,13 +1200,13 @@ export default function Shop() {
                   transition={{ type: 'tween' }}
                   className="fixed top-0 left-0 h-full w-72 bg-white z-50 shadow-2xl overflow-y-auto lg:hidden"
                 >
-                  <FilterSidebar 
-                    filters={filters} 
-                    setFilters={setFilters} 
-                    priceRange={priceRange} 
-                    setPriceRange={setPriceRange} 
-                    onClose={() => setMobileFilterOpen(false)} 
-                    isMobile 
+                  <FilterSidebar
+                    filters={filters}
+                    setFilters={setFilters}
+                    priceRange={priceRange}
+                    setPriceRange={setPriceRange}
+                    onClose={() => setMobileFilterOpen(false)}
+                    isMobile
                   />
                 </motion.aside>
               </>
@@ -1289,18 +1224,18 @@ export default function Shop() {
             <div className="flex gap-6">
               {/* Desktop Sidebar */}
               <aside className="hidden lg:block w-64 flex-shrink-0">
-                <CategorySidebar 
+                <CategorySidebar
                   categories={categories}
                   activeCat={activeSidebarCat}
                   setActiveCat={setActiveSidebarCat}
                 />
                 <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm sticky top-24">
-                  <FilterSidebar 
-                    filters={filters} 
-                    setFilters={setFilters} 
-                    priceRange={priceRange} 
-                    setPriceRange={setPriceRange} 
-                    isMobile={false} 
+                  <FilterSidebar
+                    filters={filters}
+                    setFilters={setFilters}
+                    priceRange={priceRange}
+                    setPriceRange={setPriceRange}
+                    isMobile={false}
                   />
                 </div>
               </aside>
@@ -1309,25 +1244,25 @@ export default function Shop() {
               <div className="flex-1 min-w-0">
                 {/* Toolbar */}
                 <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-wrap items-center gap-3 mb-4 shadow-sm">
-                  <button 
+                  <button
                     onClick={() => setMobileFilterOpen(true)}
                     className="lg:hidden flex items-center gap-2 bg-orange-50 text-orange-600 text-sm px-4 py-2 rounded-lg font-medium"
                   >
-                    <Filter size={16} /> Filters 
+                    <Filter size={16} /> Filters
                     {activeFilterCount > 0 && (
                       <span className="bg-orange-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
                         {activeFilterCount}
                       </span>
                     )}
                   </button>
-                  
+
                   <p className="text-sm text-gray-600">
                     <span className="font-bold text-orange-500">{filteredProducts.length}</span> products found
                   </p>
-                  
+
                   <div className="ml-auto flex items-center gap-3">
-                    <select 
-                      value={sortBy} 
+                    <select
+                      value={sortBy}
                       onChange={e => setSortBy(e.target.value)}
                       className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-200"
                     >
@@ -1338,26 +1273,24 @@ export default function Shop() {
                       <option value="price-desc">Price: High to Low</option>
                       <option value="rating">Top Rated</option>
                     </select>
-                    
+
                     <div className="flex border border-gray-300 rounded-lg overflow-hidden">
-                      <button 
-                        onClick={() => setView("grid")} 
-                        className={`px-3 py-2 transition ${
-                          view === "grid" 
-                            ? "bg-orange-500 text-white" 
+                      <button
+                        onClick={() => setView("grid")}
+                        className={`px-3 py-2 transition ${view === "grid"
+                            ? "bg-orange-500 text-white"
                             : "bg-white text-gray-500 hover:bg-orange-50"
-                        }`}
+                          }`}
                         title="Grid view"
                       >
                         <Grid size={16} />
                       </button>
-                      <button 
-                        onClick={() => setView("list")} 
-                        className={`px-3 py-2 transition ${
-                          view === "list" 
-                            ? "bg-orange-500 text-white" 
+                      <button
+                        onClick={() => setView("list")}
+                        className={`px-3 py-2 transition ${view === "list"
+                            ? "bg-orange-500 text-white"
                             : "bg-white text-gray-500 hover:bg-orange-50"
-                        }`}
+                          }`}
                         title="List view"
                       >
                         <List size={16} />
@@ -1372,16 +1305,16 @@ export default function Shop() {
                     <span className="text-sm text-gray-500">Active filters:</span>
                     {Object.entries(filters).map(([group, values]) =>
                       (values || []).map(val => (
-                        <span 
-                          key={`${group}-${val}`} 
+                        <span
+                          key={`${group}-${val}`}
                           className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-600 text-xs font-medium px-3 py-1.5 rounded-full"
                         >
                           {val}
-                          <button 
-                            onClick={() => setFilters(prev => ({ 
-                              ...prev, 
-                              [group]: prev[group].filter(v => v !== val) 
-                            }))} 
+                          <button
+                            onClick={() => setFilters(prev => ({
+                              ...prev,
+                              [group]: prev[group].filter(v => v !== val)
+                            }))}
                             className="hover:text-orange-800 transition"
                           >
                             <X size={12} />
@@ -1398,7 +1331,7 @@ export default function Shop() {
                   </div>
                 )}
 
-                {/* Products Grid/List */}
+                {/* Products Grid/List - ONLY SHOW REAL PRODUCTS, NO MOCK DATA */}
                 {loading ? (
                   <div className="flex justify-center items-center py-20">
                     <div className="relative">
@@ -1413,7 +1346,7 @@ export default function Shop() {
                     <AlertCircle size={64} className="mx-auto mb-4 text-red-400" />
                     <h3 className="text-xl font-bold text-gray-700 mb-2">Oops! Something went wrong</h3>
                     <p className="text-gray-500 mb-6">{error}</p>
-                    <button 
+                    <button
                       onClick={() => window.location.reload()}
                       className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition font-bold"
                     >
@@ -1423,29 +1356,46 @@ export default function Shop() {
                 ) : paginatedProducts.length === 0 ? (
                   <div className="bg-white rounded-xl p-12 text-center border border-gray-200">
                     <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <Search size={40} className="text-gray-400" />
+                      <Package size={40} className="text-gray-400" />
                     </div>
-                    <h3 className="text-xl font-bold text-gray-700 mb-2">No products found</h3>
-                    <p className="text-gray-500 mb-6">We couldn't find any products matching your criteria.</p>
-                    <button 
-                      onClick={clearFilters}
-                      className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition font-bold"
-                    >
-                      Clear Filters
-                    </button>
+                    <h3 className="text-xl font-bold text-gray-700 mb-2">No Products Available</h3>
+                    <p className="text-gray-500 mb-6">
+                      There are no products in the store yet. Products added by sellers and admin will appear here.
+                    </p>
+                    {user?.role === 'seller' && (
+                      <Link
+                        to="/seller/add-product"
+                        className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition font-bold inline-block"
+                      >
+                        Add Your First Product
+                      </Link>
+                    )}
+                    {user?.role === 'admin' && (
+                      <Link
+                        to="/admin/products/add"
+                        className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition font-bold inline-block"
+                      >
+                        Add Products
+                      </Link>
+                    )}
+                    {(!user || (user.role !== 'seller' && user.role !== 'admin')) && (
+                      <p className="text-sm text-gray-400">
+                        Please check back later for new products.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <>
-                    <div className={view === "grid" 
-                      ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4" 
+                    <div className={view === "grid"
+                      ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4"
                       : "flex flex-col gap-4"
                     }>
                       {paginatedProducts.map(product => (
-                        <ProductCard 
-                          key={product._id} 
-                          product={product} 
+                        <ProductCard
+                          key={product._id}
+                          product={product}
                           view={view}
-                          onAddCart={addToCart} 
+                          onAddCart={addToCart}
                           onWishlist={toggleWishlist}
                           wishlisted={wishlist.includes(product._id)}
                           onProductClick={handleProductClick}
@@ -1458,14 +1408,14 @@ export default function Shop() {
                     {/* Pagination */}
                     {totalPages > 1 && (
                       <div className="flex justify-center items-center gap-2 mt-8">
-                        <button 
-                          onClick={() => setPage(p => Math.max(1, p - 1))} 
+                        <button
+                          onClick={() => setPage(p => Math.max(1, p - 1))}
                           disabled={page === 1}
                           className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-600 hover:bg-orange-50 hover:border-orange-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
                         >
                           ← Previous
                         </button>
-                        
+
                         <div className="flex gap-1">
                           {[...Array(totalPages)].map((_, i) => {
                             const pageNum = i + 1;
@@ -1476,14 +1426,13 @@ export default function Shop() {
                               (pageNum >= page - 1 && pageNum <= page + 1)
                             ) {
                               return (
-                                <button 
-                                  key={i} 
+                                <button
+                                  key={i}
                                   onClick={() => setPage(pageNum)}
-                                  className={`w-10 h-10 rounded-lg text-sm font-bold transition ${
-                                    page === pageNum 
-                                      ? "bg-orange-500 text-white shadow-md" 
+                                  className={`w-10 h-10 rounded-lg text-sm font-bold transition ${page === pageNum
+                                      ? "bg-orange-500 text-white shadow-md"
                                       : "border border-gray-300 text-gray-600 hover:bg-orange-50"
-                                  }`}
+                                    }`}
                                 >
                                   {pageNum}
                                 </button>
@@ -1497,9 +1446,9 @@ export default function Shop() {
                             return null;
                           })}
                         </div>
-                        
-                        <button 
-                          onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+
+                        <button
+                          onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                           disabled={page === totalPages}
                           className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-600 hover:bg-orange-50 hover:border-orange-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
                         >
@@ -1530,20 +1479,20 @@ export default function Shop() {
               ))}
             </div>
 
-            {/* Recently Viewed */}
+            {/* Recently Viewed - Only show if products exist */}
             {products.length > 0 && (
               <div className="mt-10">
                 <h3 className="text-lg font-bold text-gray-800 mb-4">Recently Viewed</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                   {products.slice(0, 6).map(product => (
-                    <div 
+                    <div
                       key={product._id}
                       onClick={() => handleProductClick(product)}
                       className="bg-white border border-gray-200 rounded-lg p-2 text-center cursor-pointer hover:shadow-md transition group"
                     >
-                      <img 
-                        src={product.image} 
-                        alt={product.name} 
+                      <img
+                        src={product.image}
+                        alt={product.name}
                         className="h-16 mx-auto object-contain mb-2 group-hover:scale-105 transition"
                       />
                       <p className="text-xs font-medium text-gray-800 line-clamp-2">{product.name}</p>
@@ -1692,7 +1641,7 @@ export default function Shop() {
                       <Link
                         to="/dashboard"
                         onClick={() => setIsMobileMenuOpen(false)}
-                                                className="flex items-center gap-3 p-3 rounded-xl hover:bg-orange-50 transition"
+                        className="flex items-center gap-3 p-3 rounded-xl hover:bg-orange-50 transition"
                       >
                         <UserIcon size={20} />
                         <span className="font-medium">Dashboard</span>
@@ -1753,10 +1702,10 @@ export default function Shop() {
           { icon: <Heart size={20} />, to: "/favorites", label: "Wishlist", count: wishlist.length },
           { icon: <UserIcon size={20} />, to: user ? "/dashboard" : "/login", label: "Account" },
         ].map(item => (
-          <Link 
-            key={item.label} 
-            to={item.to || '#'} 
-            onClick={item.onClick} 
+          <Link
+            key={item.label}
+            to={item.to || '#'}
+            onClick={item.onClick}
             className="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 relative hover:bg-orange-50 transition"
           >
             <span className="text-gray-600">{item.icon}</span>
@@ -1780,9 +1729,9 @@ export default function Shop() {
             className="fixed bottom-20 lg:bottom-6 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 bg-white border border-gray-200 rounded-2xl shadow-2xl z-50 flex items-center gap-3 p-4"
           >
             <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
-              <img 
-                src={cartToast.image} 
-                alt={cartToast.name} 
+              <img
+                src={cartToast.image}
+                alt={cartToast.name}
                 className="w-10 h-10 object-contain"
                 onError={(e) => e.target.src = 'https://via.placeholder.com/40'}
               />
@@ -1802,8 +1751,8 @@ export default function Shop() {
               >
                 View Cart
               </Link>
-              <button 
-                onClick={() => setCartToast(null)} 
+              <button
+                onClick={() => setCartToast(null)}
                 className="p-1.5 text-gray-400 hover:text-gray-600"
               >
                 <X size={16} />

@@ -20,20 +20,26 @@ const loginValidation = [
 
 const verifyValidation = [
   body('userId').notEmpty().withMessage('User ID is required'),
-  body('otp').isLength({ min: 6, max: 6 }).withMessage('Valid OTP is required')
+  body('otp').isLength({ min: 6, max: 6 }).withMessage('Valid 6-digit OTP is required')
 ];
 
-// Routes
+// Public routes
 router.post('/register', registerValidation, authController.register);
 router.post('/verify', verifyValidation, authController.verifyOTP);
 router.post('/resend-otp', authController.resendOTP);
 router.post('/login', loginValidation, authController.login);
 router.post('/refresh-token', authController.refreshToken);
-router.get('/me', protect, authController.getMe);
 router.post('/forgot-password', authController.forgotPassword);
 router.put('/reset-password/:token', authController.resetPassword);
+
+// Protected routes
+router.get('/me', protect, authController.getMe);
 router.put('/change-password', protect, authController.changePassword);
 router.post('/logout', protect, authController.logout);
 router.get('/check', protect, authController.checkAuth);
+
+// Phone OTP (protected)
+router.post('/phone/send-otp', protect, authController.sendPhoneOTP);
+router.post('/phone/verify-otp', protect, authController.verifyPhoneOTP);
 
 module.exports = router;
