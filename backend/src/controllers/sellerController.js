@@ -24,13 +24,13 @@ const getSellerStats = async (req, res) => {
       Product.countDocuments({ user: req.user.id, liveStatus: { $ne: 'archived' } }),
       Order.countDocuments({ 'sellers.sellerId': sellerId, createdAt: { $gte: start, $lte: end } }),
       Order.aggregate([
-        { $match: { 'sellers.sellerId': sellerId, status: 'delivered', createdAt: { $gte: start, $lte: end } } },
+        { $match: { 'sellers.sellerId': sellerId, status: { $in: ['confirmed', 'delivered'] }, createdAt: { $gte: start, $lte: end } } },
         { $unwind: '$sellers' },
         { $match: { 'sellers.sellerId': sellerId } },
         { $group: { _id: null, total: { $sum: '$sellers.subtotal' } } }
       ]),
       Order.aggregate([
-        { $match: { 'sellers.sellerId': sellerId, status: 'delivered', createdAt: { $gte: start, $lte: end } } },
+        { $match: { 'sellers.sellerId': sellerId, status: { $in: ['confirmed', 'delivered'] }, createdAt: { $gte: start, $lte: end } } },
         { $unwind: '$sellers' },
         { $match: { 'sellers.sellerId': sellerId } },
         { $group: { _id: null, total: { $sum: '$sellers.sellerEarnings' } } }
@@ -46,14 +46,14 @@ const getSellerStats = async (req, res) => {
       }).limit(20),
       Order.countDocuments({ 'sellers.sellerId': sellerId, status: 'pending' }),
       Order.aggregate([
-        { $match: { 'sellers.sellerId': sellerId, status: 'delivered', createdAt: { $gte: start, $lte: end } } },
+        { $match: { 'sellers.sellerId': sellerId, status: { $in: ['confirmed', 'delivered'] }, createdAt: { $gte: start, $lte: end } } },
         { $unwind: '$sellers' },
         { $match: { 'sellers.sellerId': sellerId } },
         { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, sales: { $sum: '$sellers.sellerEarnings' }, orders: { $sum: 1 } } },
         { $sort: { _id: 1 } }
       ]),
       Order.aggregate([
-        { $match: { 'sellers.sellerId': sellerId, status: 'delivered' } },
+        { $match: { 'sellers.sellerId': sellerId, status: { $in: ['confirmed', 'delivered'] } } },
         { $unwind: '$items' },
         { $match: { 'items.seller': sellerId } },
         { $group: { _id: '$items.product', totalSold: { $sum: '$items.quantity' }, totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } } } },
@@ -68,7 +68,7 @@ const getSellerStats = async (req, res) => {
     ]);
 
     const monthlySales = await Order.aggregate([
-      { $match: { 'sellers.sellerId': sellerId, status: 'delivered' } },
+      { $match: { 'sellers.sellerId': sellerId, status: { $in: ['confirmed', 'delivered'] } } },
       { $unwind: '$sellers' },
       { $match: { 'sellers.sellerId': sellerId } },
       { $group: {
@@ -219,43 +219,68 @@ const getSellerOrders = async (req, res) => {
 const updateSellerOrder = async (req, res) => {
   try {
     const { status, trackingNumber, courier, note } = req.body;
+    const sellerId = req.user.id;
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
-    const isSeller = order.sellers.some(s => s.sellerId.toString() === req.user.id);
-    if (!isSeller) return res.status(403).json({ success: false, message: 'Not authorized' });
-
-    // FIX: validate allowed status transitions
-    const allowedTransitions = {
-      'pending': ['confirmed', 'cancelled'],
-      'confirmed': ['processing', 'cancelled'],
-      'processing': ['shipped', 'cancelled'],
-      'shipped': ['out-for-delivery'],
-      'out-for-delivery': ['delivered']
-    };
-
-    if (status && allowedTransitions[order.status] && !allowedTransitions[order.status].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot change status from '${order.status}' to '${status}'`
-      });
+    const sellerIndex = order.sellers.findIndex(s => s.sellerId.toString() === sellerId);
+    if (sellerIndex === -1) {
+      const isAdmin = req.user.role === 'admin';
+      if (!isAdmin) {
+        return res.status(403).json({ success: false, message: 'Not authorized to update this order' });
+      }
     }
 
-    if (status) order.status = status;
+    // Update seller-specific status if it exists
+    if (sellerIndex > -1 && status) {
+      order.sellers[sellerIndex].status = status;
+    }
+
+    // Update global status
+    // If Admin is updating, or if it's a single-seller order, or if all sellers have reached this status
+    const isSingleSeller = order.sellers.length <= 1;
+    const isAdmin = req.user.role === 'admin';
+    
+    if (status && (isAdmin || isSingleSeller)) {
+      order.status = status;
+    } else if (status) {
+      // Logic for multi-seller: update global status only if all sellers are at least at this stage
+      const statusPriority = {
+        'pending': 0, 'confirmed': 1, 'processing': 2, 
+        'shipped': 3, 'out-for-delivery': 4, 'delivered': 5,
+        'cancelled': -1, 'returned': -1, 'refunded': -1
+      };
+      
+      const currentMinStatus = Math.min(...order.sellers.map(s => statusPriority[s.status || 'pending'] || 0));
+      const targetStatusPriority = statusPriority[status] || 0;
+      
+      // If the target status is higher than the current collective status, we might not update global yet
+      // unless it's a critical one like 'cancelled'
+      if (status === 'cancelled') {
+        // One seller cancelling their part might not cancel the whole order if others can fulfill
+        // But for now, let's keep it simple as Requested.
+        if (isSingleSeller) order.status = 'cancelled';
+      } else if (targetStatusPriority <= currentMinStatus) {
+        // All sellers are at least at this status or higher
+        order.status = status;
+      }
+    }
+
     if (trackingNumber) order.trackingNumber = trackingNumber;
     if (courier) order.courier = courier;
 
     order.statusHistory.push({
       status: status || order.status,
       date: new Date(),
-      note: note || 'Updated by seller',
+      note: note || `Updated by ${req.user.role} (${req.user.name})`,
       updatedBy: req.user.id
     });
 
     await order.save();
-    return res.status(200).json({ success: true, message: 'Order updated', order });
+    return res.status(200).json({ success: true, message: 'Order updated successfully', order });
   } catch (error) {
+    console.error('Update seller order error:', error);
     return res.status(500).json({ success: false, message: 'Failed to update order: ' + error.message });
   }
 };
@@ -366,7 +391,7 @@ const getSellerProfile = async (req, res) => {
       Product.countDocuments({ user: req.user.id }),
       Order.countDocuments({ 'sellers.sellerId': sellerId }),
       Order.aggregate([
-        { $match: { 'sellers.sellerId': sellerId, status: 'delivered' } },
+        { $match: { 'sellers.sellerId': sellerId, status: { $in: ['confirmed', 'delivered'] } } },
         { $unwind: '$sellers' },
         { $match: { 'sellers.sellerId': sellerId } },
         { $group: { _id: null, total: { $sum: '$sellers.sellerEarnings' } } }

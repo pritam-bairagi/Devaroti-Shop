@@ -314,11 +314,21 @@ const getAllProducts = async (req, res) => {
 // @access  Private/Admin
 const createProduct = async (req, res) => {
   try {
-    const productData = { ...req.body, user: req.user.id };
-    if (!productData.price) productData.price = productData.sellingPrice;
+    const productData = { 
+      ...req.body, 
+      user: req.user.id,
+      liveStatus: req.body.liveStatus || 'live'
+    };
+    
+    // Ensure all required numeric fields are present
+    if (productData.sellingPrice && !productData.price) {
+      productData.price = productData.sellingPrice;
+    }
+
     const product = await Product.create(productData);
     return res.status(201).json({ success: true, product });
   } catch (error) {
+    console.error('Admin create product error:', error);
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(v => v.message);
       return res.status(400).json({ success: false, message: messages.join(', ') });
@@ -401,9 +411,26 @@ const getTransactions = async (req, res) => {
 // @access  Private/Admin
 const createTransaction = async (req, res) => {
   try {
-    const transaction = await Transaction.create({ ...req.body, user: req.user.id });
+    const { type, amount, description, category, paymentMethod, status, date } = req.body;
+    
+    if (!type || !amount || !description) {
+      return res.status(400).json({ success: false, message: 'Type, amount, and description are required' });
+    }
+
+    const transaction = await Transaction.create({
+      type,
+      amount,
+      description,
+      category: category || 'others',
+      paymentMethod: paymentMethod || 'Cash',
+      status: status || 'completed',
+      date: date || new Date(),
+      user: req.user.id
+    });
+
     return res.status(201).json({ success: true, transaction });
   } catch (error) {
+    console.error('Admin create transaction error:', error);
     return res.status(500).json({ success: false, message: 'Failed to create transaction: ' + error.message });
   }
 };
@@ -437,10 +464,68 @@ const getSales = async (req, res) => {
 // @access  Private/Admin
 const createSale = async (req, res) => {
   try {
-    const sale = await Sale.create({ ...req.body, user: req.user.id });
+    const { 
+      product, quantity, totalAmount, paymentMethod, 
+      customerName, customerPhone, customerEmail, notes 
+    } = req.body;
+    
+    if (!product || !quantity) {
+      return res.status(400).json({ success: false, message: 'Product and quantity are required' });
+    }
+
+    const productInfo = await Product.findById(product);
+    if (!productInfo) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    if (productInfo.stock < quantity) {
+      return res.status(400).json({ success: false, message: `Insufficient stock. Available: ${productInfo.stock}` });
+    }
+
+    const qty = Number(quantity);
+    const unitPrice = totalAmount ? (Number(totalAmount) / qty) : productInfo.sellingPrice;
+    const finalTotalAmount = totalAmount ? Number(totalAmount) : (unitPrice * qty);
+    const purchasePriceTotal = productInfo.purchasePrice * qty;
+    const profit = finalTotalAmount - purchasePriceTotal;
+
+    const sale = await Sale.create({
+      product,
+      quantity: qty,
+      unitPrice,
+      totalAmount: finalTotalAmount,
+      purchasePrice: purchasePriceTotal,
+      profit,
+      paymentMethod: paymentMethod || 'Cash',
+      customerName,
+      customerPhone,
+      customerEmail,
+      notes,
+      user: req.user.id
+    });
+
+    // Update product stock and soldCount
+    productInfo.stock -= qty;
+    productInfo.soldCount += qty;
+    await productInfo.save();
+
+    // Create a transaction record
+    await Transaction.create({
+      type: 'Sale',
+      amount: finalTotalAmount,
+      description: `Sale recorded for ${productInfo.name} (${qty} ${productInfo.unit})`,
+      category: 'sales',
+      reference: sale.saleNumber,
+      referenceId: sale._id,
+      referenceModel: 'Sale',
+      paymentMethod: paymentMethod || 'Cash',
+      status: 'completed',
+      user: req.user.id
+    });
+
     return res.status(201).json({ success: true, sale });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('Admin create sale error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to record sale' });
   }
 };
 

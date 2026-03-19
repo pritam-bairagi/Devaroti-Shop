@@ -85,7 +85,7 @@ purchaseSchema.index({ purchaseDate: -1 });
 purchaseSchema.index({ product: 1, purchaseDate: -1 });
 
 // Generate purchase number
-purchaseSchema.pre('save', function(next) {
+purchaseSchema.pre('validate', function(next) {
   if (!this.purchaseNumber) {
     const date = new Date();
     const year = date.getFullYear().toString().slice(-2);
