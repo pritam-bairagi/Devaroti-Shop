@@ -39,4 +39,6 @@ router.post('/purchases', sellerController.createSellerPurchase);
 router.get('/transactions', sellerController.getSellerTransactions);
 router.post('/transactions', sellerController.createSellerTransaction);
 
+router.get('/sync-balance', sellerController.syncBalance);
+
 module.exports = router;

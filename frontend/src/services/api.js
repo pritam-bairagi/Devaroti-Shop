@@ -150,14 +150,17 @@ export const productAPI = {
 
 // ==================== ORDER API ====================
 export const orderAPI = {
-  createOrder:       (data)              => api.post('/api/orders', data),
-  getMyOrders:       (params)            => api.get('/api/orders/my-orders', { params }),
-  getOrder:          (id)                => api.get(`/api/orders/${id}`),
-  cancelOrder:       (id, reason)        => api.put(`/api/orders/${id}/cancel`, { reason }),
-  trackOrder:        (orderNumber)       => api.get(`/api/orders/track/${orderNumber}`),
+  createOrder:       (data)            => api.post('/api/orders', data),
+  checkout:          (data)            => api.post('/api/orders', data), // Assuming /api/orders for checkout
+  getPublicConfig:   (key)             => api.get(`/api/config/public/${key}`), // Assuming /api/config
+  getMyOrders:       (params)          => api.get('/api/orders/my-orders', { params }),
+  getOrder:          (id)              => api.get(`/api/orders/${id}`),
+  cancelOrder:       (id, reason)      => api.put(`/api/orders/${id}/cancel`, { reason }),
+  trackOrder:        (orderNumber)     => api.get(`/api/orders/track/${orderNumber}`),
   // FIX: route is /seller/list (matches orderRoutes.js)
-  getSellerOrders:   (params)            => api.get('/api/orders/seller/list', { params }),
   updateOrderStatus: (id, data)          => api.put(`/api/orders/${id}/status`, data),
+  // Coupons
+  validateCoupon:    (data)            => api.post('/api/coupons/validate', data),
 };
 
 // ==================== PAYMENT API ====================
@@ -203,6 +206,19 @@ export const adminAPI = {
   createPurchase:    (data)        => api.post('/api/admin/purchases', data),
 
   getSystemLogs:     (params)      => api.get('/api/admin/logs', { params }),
+  
+  // Config
+  getConfig:         ()            => api.get('/api/admin/config'),
+  updateConfig:      (data)        => api.put('/api/admin/config', data),
+  
+  // Withdrawals
+  getWithdrawals:    (params)      => api.get('/api/admin/withdrawals', { params }),
+  updateWithdrawal:  (id, data)    => api.put(`/api/admin/withdrawals/${id}`, data),
+  // Coupons
+  getCoupons:        ()            => api.get('/api/coupons'),
+  createCoupon:      (data)        => api.post('/api/coupons', data),
+  updateCoupon:      (id, data)    => api.put(`/api/coupons/${id}`, data),
+  deleteCoupon:      (id)          => api.delete(`/api/coupons/${id}`),
 };
 
 // ==================== SELLER API ====================

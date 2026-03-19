@@ -46,7 +46,7 @@ const transactionSchema = new mongoose.Schema({
   
   paymentMethod: {
     type: String,
-    enum: ['Cash', 'Bank', 'bkash', 'nagad', 'rocket', 'card']
+    enum: ['Cash', 'Bank', 'bkash', 'nagad', 'rocket', 'card', 'bKash', 'Nagad', 'Rocket', 'Card']
   },
   
   status: {

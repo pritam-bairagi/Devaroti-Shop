@@ -62,7 +62,7 @@ const orderSchema = new mongoose.Schema({
   // FIX: all payment method values used across the app are listed here
   paymentMethod: {
     type: String,
-    enum: ['cash', 'card', 'bkash', 'nagad', 'rocket', 'bank', 'Cash on Delivery', 'online'],
+    enum: ['cash', 'card', 'bkash', 'nagad', 'rocket', 'bank', 'Cash on Delivery', 'online', 'bKash', 'Nagad', 'Rocket', 'Bank', 'Cash'],
     required: true
   },
 

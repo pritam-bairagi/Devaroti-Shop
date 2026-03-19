@@ -6,7 +6,7 @@ import {
   Filter, Calendar, Eye, Check, AlertCircle, Clock, CreditCard,
   X, Plus, Edit, Trash2, Search, RefreshCw, ArrowUpRight,
   FileSpreadsheet, Printer, Store, Activity, Warehouse,
-  CloudUpload, CheckCircle2, XCircle, Loader2
+  CloudUpload, CheckCircle2, XCircle, Loader2, Ticket, History, Copy
 } from "lucide-react";
 import { useAuth } from "../contexts/useAuth";
 import { adminAPI, productAPI } from "../services/api";
@@ -160,6 +160,8 @@ const AdminDashboard = () => {
   const [sales, setSales] = useState([]);
   const [purchases, setPurchases] = useState([]);
   const [inventory, setInventory] = useState([]);
+  const [withdrawals, setWithdrawals] = useState([]);
+  const [configs, setConfigs] = useState({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [dateRange, setDateRange] = useState("30d");
@@ -182,6 +184,13 @@ const AdminDashboard = () => {
   const [purchaseForm, setPurchaseForm] = useState({ product: '', quantity: 1, totalAmount: 0, description: '', supplier: '' });
   const [userForm, setUserForm] = useState({ role: 'user', isActive: true, isSellerApproved: false });
   const [backupState, setBackupState] = useState({ loading: false, token: '' });
+  const [coupons, setCoupons] = useState([]);
+  const [showCouponModal, setShowCouponModal] = useState(false);
+  const [editingCoupon, setEditingCoupon] = useState(null);
+  const [couponForm, setCouponForm] = useState({
+    code: '', discountType: 'percentage', discountValue: 0,
+    minPurchase: 0, maxDiscount: 0, endDate: '', usageLimit: 0, isActive: true
+  });
 
   const openModal = (name, item = null) => {
     setSelectedItem(item);
@@ -207,6 +216,9 @@ const AdminDashboard = () => {
       if (activeTab === 'purchases') calls.push(adminAPI.getPurchases({ limit: 100 }).catch(() => ({ data: { purchases: [] } })));
       if (activeTab === 'analytics') calls.push(adminAPI.getAnalytics({ period: dateRange }).catch(() => ({ data: { analytics: {} } })));
       if (activeTab === 'inventory') calls.push(adminAPI.getInventory().catch(() => ({ data: { products: [] } })));
+      if (['withdrawals', 'payouts'].includes(activeTab)) calls.push(adminAPI.getWithdrawals({ status: 'all', limit: 100 }).catch(() => ({ data: { withdrawals: [] } })));
+      if (activeTab === 'coupons') calls.push(adminAPI.getCoupons().catch(() => ({ data: { coupons: [] } })));
+      if (activeTab === 'settings' || activeTab === 'overview') calls.push(adminAPI.getConfig().catch(() => ({ data: { configs: {} } })));
 
       const results = await Promise.all(calls);
       if (results[0]?.data?.stats) setStats(results[0].data.stats);
@@ -218,6 +230,9 @@ const AdminDashboard = () => {
         if (r?.data?.sales) setSales(r.data.sales);
         if (r?.data?.purchases) setPurchases(r.data.purchases);
         if (r?.data?.analytics) setAnalytics(r.data.analytics);
+        if (r?.data?.withdrawals) setWithdrawals(r.data.withdrawals);
+        if (r?.data?.configs) setConfigs(r.data.configs);
+        if (r?.data?.coupons) setCoupons(r.data.coupons);
       });
     } catch (err) {
       toast.error("Failed to fetch data");
@@ -387,6 +402,66 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleUpdateWithdrawal = async (id, status) => {
+    try {
+      const backendStatus = status === 'approved' ? 'completed' : 'failed';
+      await adminAPI.updateWithdrawal(id, { status: backendStatus });
+      toast.success(`Withdrawal ${status}`);
+      fetchData();
+    } catch { toast.error('Failed to update withdrawal'); }
+  };
+
+  const handleDeleteCoupon = async (id) => {
+    if (!window.confirm('Delete this coupon?')) return;
+    try {
+      await adminAPI.deleteCoupon(id);
+      toast.success('Coupon deleted');
+      fetchData();
+    } catch { toast.error('Failed to delete coupon'); }
+  };
+
+  const handleSaveCoupon = async (e) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+      if (editingCoupon) {
+        await adminAPI.updateCoupon(editingCoupon._id, couponForm);
+        toast.success('Coupon updated successfully');
+      } else {
+        await adminAPI.createCoupon(couponForm);
+        toast.success('Coupon created successfully');
+      }
+      setShowCouponModal(false);
+      setEditingCoupon(null);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to save coupon');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateConfig = async (e) => {
+    e.preventDefault();
+    try {
+      // Specifically send the bkash_number key
+      await adminAPI.updateConfig({ 
+        key: 'bkash_number', 
+        value: configs.bkash_number 
+      });
+      toast.success('Configuration updated');
+      fetchData();
+    } catch { toast.error('Failed to update configuration'); }
+  };
+
+  const handleUpdateSpecificConfig = async (key, value) => {
+    try {
+      await adminAPI.updateConfig({ key, value });
+      toast.success(`${key.replace('_', ' ')} updated`);
+      fetchData();
+    } catch { toast.error(`Failed to update ${key}`); }
+  };
+
   // ---- Filter helpers ----
   const filteredOrders = orders.filter(o => !searchQuery || o.orderNumber?.toLowerCase().includes(searchQuery.toLowerCase()) || o.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()));
   const filteredUsers = users.filter(u => !searchQuery || u.name?.toLowerCase().includes(searchQuery.toLowerCase()) || u.email?.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -406,11 +481,15 @@ const AdminDashboard = () => {
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'orders', label: 'Orders', icon: ShoppingCart },
     { id: 'inventory', label: 'Inventory', icon: Warehouse },
+    { id: 'coupons', label: 'Coupons', icon: Ticket },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'cashbox', label: 'Cash Box', icon: Banknote },
     { id: 'sales', label: 'Sales', icon: ShoppingBag },
     { id: 'purchases', label: 'Purchases', icon: Package },
+    { id: 'withdrawals', label: 'Withdrawal Req', icon: CreditCard },
+    { id: 'payouts', label: 'Payout History', icon: History },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'settings', label: 'Settings', icon: Activity },
   ];
 
   return (
@@ -441,6 +520,24 @@ const AdminDashboard = () => {
             <Btn size="sm" variant="secondary" onClick={fetchData} disabled={loading}>
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
             </Btn>
+            {configs.bkash_number && (
+              <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 px-3 py-1 rounded-lg">
+                <div className="flex flex-col">
+                  <span className="text-[8px] text-slate-500 uppercase font-bold leading-none italic">Payment Help</span>
+                  <span className="text-xs font-mono text-orange-400 font-bold leading-tight">{configs.bkash_number}</span>
+                </div>
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(configs.bkash_number);
+                    toast.success('Number copied!');
+                  }}
+                  className="p-1.5 hover:bg-slate-700 rounded-md transition-colors text-slate-400 hover:text-white"
+                  title="Copy Primary Number"
+                >
+                  <Copy size={12} />
+                </button>
+              </div>
+            )}
           </div>
         </div>
         {/* Tabs */}
@@ -591,7 +688,7 @@ const AdminDashboard = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-700 bg-slate-900/50">
-                    {['Order #', 'Customer', 'Items', 'Total', 'Payment', 'Status', 'Date', 'Actions'].map(h => (
+                    {['Order #', 'Customer', 'Items', 'Total', 'Seller', 'Payment', 'Status', 'Date', 'Actions'].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
@@ -612,6 +709,15 @@ const AdminDashboard = () => {
                       </td>
                       <td className="px-4 py-3 text-slate-300">{order.items?.length} item(s)</td>
                       <td className="px-4 py-3 font-semibold text-white">{fmt(order.totalPrice)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          {order.items?.map((item, idx) => (
+                            <span key={idx} className="text-xs text-slate-400">
+                              {item.product?.user?.shopName || item.product?.brand || 'N/A'}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
                       <td className="px-4 py-3"><Badge status={order.paymentStatus} /></td>
                       <td className="px-4 py-3"><Badge status={order.status} /></td>
                       <td className="px-4 py-3 text-slate-400 text-xs">{new Date(order.createdAt).toLocaleDateString()}</td>
@@ -706,8 +812,100 @@ const AdminDashboard = () => {
             </div>
           </div>
         )}
+        {/* ==================== COUPONS ==================== */}
+        {activeTab === 'coupons' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white">Coupon Management</h2>
+              <Btn onClick={() => { setEditingCoupon(null); setCouponForm({ code: '', discountType: 'percentage', discountValue: 0, minPurchase: 0, maxDiscount: 0, endDate: '', usageLimit: 0, isActive: true }); setShowCouponModal(true); }}>
+                <Plus size={16} /> Create Coupon
+              </Btn>
+            </div>
+            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-900/50 border-b border-slate-700">
+                    <th className="px-4 py-3 text-left">Code</th>
+                    <th className="px-4 py-3 text-left">Discount</th>
+                    <th className="px-4 py-3 text-left">Min. Buy</th>
+                    <th className="px-4 py-3 text-left">Limit</th>
+                    <th className="px-4 py-3 text-left">Expiry</th>
+                    <th className="px-4 py-3 text-left">Status</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coupons.length === 0 ? (
+                    <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">No coupons found</td></tr>
+                  ) : coupons.map(coupon => (
+                    <tr key={coupon._id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
+                      <td className="px-4 py-3 font-bold text-orange-400">{coupon.code}</td>
+                      <td className="px-4 py-3 font-medium">
+                        {coupon.discountType === 'percentage' ? `${coupon.discountValue}%` : `৳${coupon.discountValue}`}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400">৳{coupon.minPurchase}</td>
+                      <td className="px-4 py-3">
+                        <span className="text-white">{coupon.usedCount}</span>
+                        <span className="text-slate-500"> / {coupon.usageLimit || '∞'}</span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-400">{new Date(coupon.endDate).toLocaleDateString()}</td>
+                      <td className="px-4 py-3">
+                        <Badge status={coupon.isActive && new Date() < new Date(coupon.endDate) ? 'active' : 'expired'} />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-1">
+                          <Btn size="sm" variant="ghost" onClick={() => { setEditingCoupon(coupon); setCouponForm(coupon); setShowCouponModal(true); }}><Eye size={13} /></Btn>
+                          <Btn size="sm" variant="ghost" onClick={() => { setEditingCoupon(coupon); setCouponForm(coupon); setShowCouponModal(true); }}><Edit size={13} /></Btn>
+                          <Btn size="sm" variant="danger" onClick={() => handleDeleteCoupon(coupon._id)}><Trash2 size={13} /></Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* ==================== USERS ==================== */}
+        {activeTab === 'payouts' && (
+          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+            <div className="p-6 border-b border-slate-700">
+              <h3 className="text-xl font-bold text-white uppercase tracking-wider">Seller Payout History</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-900/50 text-slate-400 text-xs uppercase">
+                    <th className="px-6 py-4 text-left">Seller</th>
+                    <th className="px-6 py-4 text-left">Method</th>
+                    <th className="px-6 py-4 text-left">Date Paid</th>
+                    <th className="px-6 py-4 text-right">Amount</th>
+                    <th className="px-6 py-4 text-center">Reference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {withdrawals.filter(w => w.status === 'completed' || w.status === 'failed').map(w => (
+                    <tr key={w._id} className="border-b border-slate-700 hover:bg-slate-700/50 transition">
+                      <td className="px-6 py-4">
+                        <div className="text-white font-medium">{w.metadata?.sellerName || w.user?.name}</div>
+                        <div className="text-xs text-slate-500">{w.metadata?.accountName || w.user?.shopName}</div>
+                      </td>
+                      <td className="px-6 py-4 text-slate-300">
+                        <div>{w.paymentMethod}</div>
+                        <div className="text-xs text-slate-500">{w.metadata?.accountNumber || w.paymentDetails}</div>
+                      </td>
+                      <td className="px-6 py-4 text-slate-400">{new Date(w.updatedAt).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 text-right font-bold text-green-400">{fmt(w.amount)}</td>
+                      <td className="px-6 py-4 text-center text-xs text-slate-500">{w._id}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'users' && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1001,6 +1199,232 @@ const AdminDashboard = () => {
             </div>
           </div>
         )}
+
+        {/* ==================== WITHDRAWALS ==================== */}
+        {activeTab === 'withdrawals' && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-bold text-white">Withdrawal Requests</h2>
+            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700 bg-slate-900/50">
+                    {['Seller', 'Total Sale', 'Amount', 'Method', 'Account Details', 'Status', 'Date', 'Actions'].map(h => (
+                      <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {withdrawals.length === 0 ? (
+                    <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">No withdrawal requests found</td></tr>
+                  ) : withdrawals.map(w => (
+                    <tr key={w._id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
+                      <td className="px-4 py-3">
+                        <p className="text-white font-medium">{w.user?.shopName || w.user?.name}</p>
+                        <p className="text-xs text-slate-400">{w.user?.email}</p>
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-emerald-400">{fmt(w.user?.totalEarnings || 0)}</td>
+                      <td className="px-4 py-3 font-bold text-white">{fmt(w.amount)}</td>
+                      <td className="px-4 py-3 text-slate-300">{w.paymentMethod}</td>
+                      <td className="px-4 py-3 text-slate-400 text-xs">
+                        <div><span className="text-[10px] text-slate-500">Num:</span> {w.metadata?.accountNumber || w.accountDetails || 'N/A'}</div>
+                        <div><span className="text-[10px] text-slate-500">Name:</span> {w.metadata?.accountName || 'N/A'}</div>
+                      </td>
+                      <td className="px-4 py-3"><Badge status={w.status} /></td>
+                      <td className="px-4 py-3 text-slate-400 text-xs">{new Date(w.createdAt).toLocaleString()}</td>
+                      <td className="px-4 py-3">
+                        {w.status === 'pending' && (
+                          <div className="flex gap-2">
+                            <Btn size="sm" variant="success" onClick={() => handleUpdateWithdrawal(w._id, 'approved')} title="Approve"><Check size={14} /></Btn>
+                            <Btn size="sm" variant="danger" onClick={() => handleUpdateWithdrawal(w._id, 'rejected')} title="Reject"><X size={14} /></Btn>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'payouts' && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-bold text-white tracking-tight">Seller Payout History</h2>
+            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-2xl">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700 bg-slate-900/50">
+                    {['Seller', 'Total Sale', 'Amount', 'Method', 'Date Paid', 'Reference'].map(h => (
+                      <th key={h} className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-widest">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {withdrawals.filter(w => w.status === 'completed').length === 0 ? (
+                    <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-500 italic">No completed payouts found</td></tr>
+                  ) : withdrawals.filter(w => w.status === 'completed').map(w => (
+                    <tr key={w._id} className="border-b border-slate-700/50 hover:bg-slate-700/40 transition-all group">
+                      <td className="px-6 py-4">
+                        <div className="text-white font-semibold group-hover:text-orange-400 transition-colors uppercase text-xs">{w.user?.shopName || w.user?.name}</div>
+                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">{w.user?.email}</div>
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-emerald-400">{fmt(w.user?.totalEarnings || 0)}</td>
+                      <td className="px-6 py-4 font-bold text-white text-base">{fmt(w.amount)}</td>
+                      <td className="px-6 py-4">
+                        <span className="bg-slate-700/50 text-slate-300 px-2 py-1 rounded text-[10px] font-bold uppercase">{w.paymentMethod}</span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-400 text-xs font-medium">{new Date(w.updatedAt).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 text-slate-600 font-mono text-[9px] uppercase tracking-tighter">{w._id}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== SETTINGS ==================== */}
+        {activeTab === 'settings' && (
+          <div className="space-y-6">
+            <h2 className="text-xl font-bold text-white">System Settings</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+                <h3 className="text-sm font-semibold text-orange-400 mb-4 uppercase tracking-wider">Payment & Checkout</h3>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Input 
+                      label="bKash Number" 
+                      value={configs.bkash_number || ''} 
+                      onChange={e => setConfigs({ ...configs, bkash_number: e.target.value })}
+                      placeholder="e.g. 017XXXXXXXX"
+                    />
+                    <Input 
+                      label="Nagad Number" 
+                      value={configs.nagad_number || ''} 
+                      onChange={e => setConfigs({ ...configs, nagad_number: e.target.value })}
+                      placeholder="e.g. 018XXXXXXXX"
+                    />
+                    <Input 
+                      label="Rocket Number" 
+                      value={configs.rocket_number || ''} 
+                      onChange={e => setConfigs({ ...configs, rocket_number: e.target.value })}
+                      placeholder="e.g. 019XXXXXXXX"
+                    />
+                    <Input 
+                      label="Bank Details" 
+                      value={configs.bank_details || ''} 
+                      onChange={e => setConfigs({ ...configs, bank_details: e.target.value })}
+                      placeholder="Bank, Acc Name, No, Branch"
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Btn onClick={async () => {
+                      await handleUpdateSpecificConfig('bkash_number', configs.bkash_number);
+                      await handleUpdateSpecificConfig('nagad_number', configs.nagad_number);
+                      await handleUpdateSpecificConfig('rocket_number', configs.rocket_number);
+                      await handleUpdateSpecificConfig('bank_details', configs.bank_details);
+                    }} loading={loading}>Save Payment Details</Btn>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+                <h3 className="text-sm font-semibold text-orange-400 mb-4 uppercase tracking-wider">Fees & Delivery</h3>
+                <div className="space-y-4">
+                  <Input 
+                    label="Standard Delivery Charge (৳)" 
+                    type="number"
+                    value={configs.delivery_charge || ''} 
+                    onChange={e => setConfigs({ ...configs, delivery_charge: e.target.value })}
+                    placeholder="e.g. 60"
+                  />
+                  <Input 
+                    label="VAT / Tax Percentage (%)" 
+                    type="number"
+                    value={configs.vat_percentage || ''} 
+                    onChange={e => setConfigs({ ...configs, vat_percentage: e.target.value })}
+                    placeholder="e.g. 5"
+                  />
+                  <div className="flex gap-2 pt-2">
+                    <Btn onClick={async () => {
+                      await handleUpdateSpecificConfig('delivery_charge', configs.delivery_charge);
+                      await handleUpdateSpecificConfig('vat_percentage', configs.vat_percentage);
+                    }} loading={loading}>Save Fees</Btn>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+                <h3 className="text-sm font-semibold text-orange-400 mb-4 uppercase tracking-wider">Membership Discounts (%)</h3>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest pl-1">Product Discounts</p>
+                    <Input label="Bronze (Prod)" type="number"
+                      value={configs.membership_bronze_discount || 0} 
+                      onChange={e => setConfigs({ ...configs, membership_bronze_discount: e.target.value })}
+                    />
+                    <Input label="Silver (Prod)" type="number"
+                      value={configs.membership_silver_discount || 0} 
+                      onChange={e => setConfigs({ ...configs, membership_silver_discount: e.target.value })}
+                    />
+                    <Input label="Gold (Prod)" type="number"
+                      value={configs.membership_gold_discount || 0} 
+                      onChange={e => setConfigs({ ...configs, membership_gold_discount: e.target.value })}
+                    />
+                    <Input label="Platinum (Prod)" type="number"
+                      value={configs.membership_platinum_discount || 0} 
+                      onChange={e => setConfigs({ ...configs, membership_platinum_discount: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest pl-1">Delivery Discounts</p>
+                    <Input label="Bronze (Del)" type="number"
+                      value={configs.membership_bronze_delivery_discount || 0} 
+                      onChange={e => setConfigs({ ...configs, membership_bronze_delivery_discount: e.target.value })}
+                    />
+                    <Input label="Silver (Del)" type="number"
+                      value={configs.membership_silver_delivery_discount || 0} 
+                      onChange={e => setConfigs({ ...configs, membership_silver_delivery_discount: e.target.value })}
+                    />
+                    <Input label="Gold (Del)" type="number"
+                      value={configs.membership_gold_delivery_discount || 0} 
+                      onChange={e => setConfigs({ ...configs, membership_gold_delivery_discount: e.target.value })}
+                    />
+                    <Input label="Platinum (Del)" type="number"
+                      value={configs.membership_platinum_delivery_discount || 0} 
+                      onChange={e => setConfigs({ ...configs, membership_platinum_delivery_discount: e.target.value })}
+                    />
+                  </div>
+                  <div className="col-span-2 pt-2">
+                    <Btn onClick={async () => {
+                      const keys = [
+                        'membership_bronze_discount', 'membership_silver_discount', 'membership_gold_discount', 'membership_platinum_discount',
+                        'membership_bronze_delivery_discount', 'membership_silver_delivery_discount', 'membership_gold_delivery_discount', 'membership_platinum_delivery_discount'
+                      ];
+                      for (const k of keys) {
+                        await handleUpdateSpecificConfig(k, configs[k]);
+                      }
+                    }} loading={loading} className="w-full">Save Membership Benefits</Btn>
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-4">
+                  <Btn onClick={async () => {
+                    await handleUpdateSpecificConfig('membership_bronze_discount', configs.membership_bronze_discount);
+                    await handleUpdateSpecificConfig('membership_silver_discount', configs.membership_silver_discount);
+                    await handleUpdateSpecificConfig('membership_gold_discount', configs.membership_gold_discount);
+                    await handleUpdateSpecificConfig('membership_platinum_discount', configs.membership_platinum_discount);
+                  }} loading={loading}>Save Discounts</Btn>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+              <h3 className="text-sm font-semibold text-orange-400 mb-4 uppercase tracking-wider">Promotion Management</h3>
+              <p className="text-sm text-slate-400 mb-4">Manage coupons, discounts, and member level offers here.</p>
+              <Btn variant="secondary" onClick={() => toast('Coupon management coming in next step!')}>Manage Coupons</Btn>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ============================================================ */}
@@ -1029,11 +1453,19 @@ const AdminDashboard = () => {
               <p className="text-slate-400 text-xs mb-2">Items</p>
               {selectedItem.items?.map((item, i) => (
                 <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-800">
-                  <div className="flex items-center gap-2">
-                    {item.image && <img src={item.image} className="w-8 h-8 rounded object-cover" />}
-                    <span className="text-white text-sm">{item.name}</span>
+                  <div className="flex items-center gap-3">
+                    {item.image && <img src={item.image} className="w-10 h-10 rounded object-cover border border-slate-700" />}
+                    <div className="flex flex-col">
+                      <span className="text-white text-sm font-medium">{item.name}</span>
+                      <span className="text-xs text-slate-400">
+                        Seller: {item.product?.user?.shopName || item.product?.brand || 'N/A'}
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-slate-300 text-sm">{item.quantity} × {fmt(item.price)} = <span className="text-orange-400 font-medium">{fmt(item.quantity * item.price)}</span></span>
+                  <div className="text-right">
+                    <span className="text-slate-300 text-sm block">{item.quantity} × {fmt(item.price)}</span>
+                    <span className="text-orange-400 font-bold">{fmt(item.quantity * item.price)}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1163,6 +1595,36 @@ const AdminDashboard = () => {
           <div className="flex gap-2 justify-end">
             <Btn type="button" variant="secondary" onClick={() => closeModal('editUser')}>Cancel</Btn>
             <Btn type="submit">Update User</Btn>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Coupon Modal */}
+      <Modal open={showCouponModal} onClose={() => setShowCouponModal(false)} title={editingCoupon ? 'Edit Coupon' : 'Create New Coupon'}>
+        <form onSubmit={handleSaveCoupon} className="space-y-4">
+          <Input label="Coupon Code" required value={couponForm.code} onChange={e => setCouponForm({ ...couponForm, code: e.target.value.toUpperCase() })} placeholder="e.g. SAVE20" />
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Discount Type" value={couponForm.discountType} onChange={e => setCouponForm({ ...couponForm, discountType: e.target.value })}>
+              <option value="percentage">Percentage (%)</option>
+              <option value="fixed">Fixed Amount (৳)</option>
+            </Select>
+            <Input label="Value" type="number" required value={couponForm.discountValue} onChange={e => setCouponForm({ ...couponForm, discountValue: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Min Purchase (৳)" type="number" value={couponForm.minPurchase} onChange={e => setCouponForm({ ...couponForm, minPurchase: e.target.value })} />
+            <Input label="Max Discount (৳)" type="number" value={couponForm.maxDiscount} onChange={e => setCouponForm({ ...couponForm, maxDiscount: e.target.value })} disabled={couponForm.discountType === 'fixed'} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Expiry Date" type="date" required value={couponForm.endDate ? new Date(couponForm.endDate).toISOString().split('T')[0] : ''} onChange={e => setCouponForm({ ...couponForm, endDate: e.target.value })} />
+            <Input label="Usage Limit" type="number" value={couponForm.usageLimit} onChange={e => setCouponForm({ ...couponForm, usageLimit: e.target.value })} placeholder="0 for unlimited" />
+          </div>
+          <div className="flex items-center gap-2 py-2">
+            <input type="checkbox" checked={couponForm.isActive} onChange={e => setCouponForm({ ...couponForm, isActive: e.target.checked })} className="w-4 h-4 rounded border-slate-700 bg-slate-900" />
+            <label className="text-sm text-slate-300">Coupon is active</label>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Btn type="button" variant="secondary" onClick={() => setShowCouponModal(false)}>Cancel</Btn>
+            <Btn type="submit" loading={loading}>{editingCoupon ? 'Update' : 'Create'} Coupon</Btn>
           </div>
         </form>
       </Modal>

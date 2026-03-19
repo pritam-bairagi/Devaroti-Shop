@@ -2,6 +2,7 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { validationResult } = require('express-validator');
+const sendEmail = require('../utils/sendEmail');
 
 // ==================== HELPER FUNCTIONS ====================
 
@@ -69,7 +70,30 @@ const register = async (req, res) => {
     const otp = user.generateOTP();
     await user.save();
 
-    // TODO: Replace console.log with actual email sending in production
+    // Send verification email
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Email Verification Code',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+            <h2 style="color: #088178; text-align: center;">Verify Your Email</h2>
+            <p>Welcome to ${process.env.APP_NAME || 'Devaroti Shop'}! Use the following 6-digit code to verify your email address:</p>
+            <div style="background: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #333; border-radius: 5px; margin: 20px 0;">
+              ${otp}
+            </div>
+            <p>This code will expire in 10 minutes.</p>
+            <p>If you didn't create this account, please ignore this email.</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+            <p style="font-size: 12px; color: #888; text-align: center;">&copy; 2026 ${process.env.APP_NAME || 'Devaroti Shop'}. All rights reserved.</p>
+          </div>
+        `
+      });
+    } catch (emailError) {
+      console.error('Email sending failed during registration:', emailError);
+      // We still registered the user, they can use 'resend OTP' later
+    }
+    
     console.log(`OTP for ${email}: ${otp}`);
 
     return res.status(201).json({
@@ -160,7 +184,28 @@ const resendOTP = async (req, res) => {
     const otp = user.generateOTP();
     await user.save();
 
-    // TODO: Send via email in production
+    // Send email
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Your New Verification Code',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+            <h2 style="color: #088178; text-align: center;">Verification Code</h2>
+            <p>You requested a new verification code. Use the following code to verify your account:</p>
+            <div style="background: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #333; border-radius: 5px; margin: 20px 0;">
+              ${otp}
+            </div>
+            <p>This code will expire in 10 minutes.</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+            <p style="font-size: 12px; color: #888; text-align: center;">&copy; 2026 ${process.env.APP_NAME || 'Parash Feri'}. All rights reserved.</p>
+          </div>
+        `
+      });
+    } catch (emailError) {
+      console.error('Email resend failed:', emailError);
+    }
+
     console.log(`New OTP for ${user.email}: ${otp}`);
 
     return res.status(200).json({ success: true, message: 'New OTP sent successfully' });
@@ -196,6 +241,14 @@ const login = async (req, res) => {
       const otp = user.generateOTP();
       await user.save();
       console.log(`OTP for verification: ${otp}`);
+      
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: 'Please Verify Your Email',
+          html: `<p>Your verification code is: <b>${otp}</b></p>`
+        });
+      } catch (e) {}
       return res.status(401).json({
         success: false,
         message: 'Please verify your email first',
@@ -365,9 +418,32 @@ const forgotPassword = async (req, res) => {
     const resetToken = user.generateResetPasswordToken();
     await user.save({ validateBeforeSave: false });
 
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${resetToken}`;
 
-    // TODO: Send via email in production
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Password Reset Request',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+            <h2 style="color: #088178; text-align: center;">Password Reset</h2>
+            <p>You requested to reset your password. Please click the button below to set a new password:</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${resetUrl}" style="background: #088178; color: white; padding: 12px 25px; text-decoration: none; font-weight: bold; border-radius: 5px;">Reset Password</a>
+            </div>
+            <p>If you cannot click the button, copy and paste this link into your browser:</p>
+            <p style="font-size: 12px; color: #888; background: #f9f9f9; padding: 10px; word-break: break-all;">${resetUrl}</p>
+            <p>This link will expire in 10 minutes.</p>
+            <p>If you didn't request a password reset, please ignore this email.</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+            <p style="font-size: 12px; color: #888; text-align: center;">&copy; 2026 ${process.env.APP_NAME || 'Parash Feri'}. All rights reserved.</p>
+          </div>
+        `
+      });
+    } catch (emailError) {
+      console.error('Forgot password email failed:', emailError);
+    }
+
     console.log(`Reset password link for ${email}: ${resetUrl}`);
 
     return res.status(200).json({ success: true, message: 'Password reset link sent to email' });
@@ -484,7 +560,8 @@ const checkAuth = async (req, res) => {
         isVerified: user.isVerified,
         profilePic: user.profilePic,
         level: user.level,
-        levelColor: user.levelColor
+        levelColor: user.levelColor,
+        addresses: user.addresses
       }
     });
   } catch (error) {
@@ -515,6 +592,14 @@ const sendPhoneOTP = async (req, res) => {
     const otp = user.generateOTP();
     user.phoneNumber = phoneNumber;
     await user.save();
+
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Phone Verification Code',
+        html: `<p>Your verification code for phone number update is: <b>${otp}</b></p>`
+      });
+    } catch (e) {}
 
     console.log(`Phone OTP for ${phoneNumber}: ${otp}`);
 

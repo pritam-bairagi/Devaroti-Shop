@@ -38,16 +38,12 @@ router.post('/sales', adminController.createSale);
 router.get('/purchases', adminController.getPurchases);
 router.post('/purchases', adminController.createPurchase);
 
-// Export
-router.get('/export/:type', adminController.exportData);
+// System Configuration
+router.get('/config', adminController.getSystemConfig);
+router.put('/config', adminController.updateSystemConfig);
 
-// Google Drive Backup
-router.get('/google/auth', adminController.googleDriveAuth);
-router.post('/google/backup', adminController.backupToGoogleDrive);
-
-// FIX: /google/callback is intentionally NOT here.
-// Google redirects back to this URL without a token so it cannot go through
-// the admin middleware. It is registered as a public route in server.js:
-//   app.get('/api/admin/google/callback', adminController.googleDriveCallback)
+// Withdrawal Management
+router.get('/withdrawals', adminController.getWithdrawalRequests);
+router.put('/withdrawals/:id', adminController.updateWithdrawalStatus);
 
 module.exports = router;

@@ -40,12 +40,15 @@ const ProductCard = ({ product, onAddToCart, onToggleFavorite }) => {
       });
 
       if (response.data.success) {
-        toast.success('Added to cart');
         setUser({ ...user, cart: response.data.cart });
         onAddToCart?.(product);
+        toast.success(response.data.message || 'Added to cart successfully!');
+      } else {
+        toast.error(response.data.message || 'Failed to add to cart');
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to add to cart');
+      console.error('Cart error:', error);
+      toast.error(error.response?.data?.message || 'Error adding to cart');
     } finally {
       setIsLoading(false);
     }
@@ -56,7 +59,7 @@ const ProductCard = ({ product, onAddToCart, onToggleFavorite }) => {
     e.stopPropagation();
 
     if (!user) {
-      toast.error('Please login to add to wishlist');
+      toast.error('Please login to add to favorites');
       return;
     }
 
@@ -66,10 +69,10 @@ const ProductCard = ({ product, onAddToCart, onToggleFavorite }) => {
       if (response.data.success) {
         setUser({ ...user, favorites: response.data.favorites });
         onToggleFavorite?.(product._id);
-        toast.success(response.data.favorites.includes(product._id) 
-          ? 'Added to wishlist' 
-          : 'Removed from wishlist'
+        const isNowFavorite = response.data.favorites.some(fav => 
+          typeof fav === 'string' ? fav === product._id : fav._id === product._id
         );
+        toast.success(isNowFavorite ? 'Added to wishlist' : 'Removed from wishlist');
       }
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to update wishlist');

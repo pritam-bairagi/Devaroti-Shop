@@ -5,6 +5,7 @@ const Sale = require('../models/Sale');
 const Purchase = require('../models/Purchase');
 const Transaction = require('../models/Transaction');
 const mongoose = require('mongoose');
+const { syncSellerBalance } = require('../utils/balanceUtils');
 
 // @desc    Get seller dashboard stats
 // @route   GET /api/seller/stats
@@ -17,10 +18,11 @@ const getSellerStats = async (req, res) => {
     const end = endDate ? new Date(endDate) : new Date();
 
     const [
-      totalProducts, totalOrders, totalSales,
-      totalEarnings, recentOrders, lowStockProducts,
+      user, totalProducts, totalOrders, totalSales,
+      recentOrders, lowStockProducts,
       pendingOrders, salesChart, topProducts, ordersByStatus
     ] = await Promise.all([
+      User.findById(req.user.id),
       Product.countDocuments({ user: req.user.id, liveStatus: { $ne: 'archived' } }),
       Order.countDocuments({ 'sellers.sellerId': sellerId, createdAt: { $gte: start, $lte: end } }),
       Order.aggregate([
@@ -28,12 +30,6 @@ const getSellerStats = async (req, res) => {
         { $unwind: '$sellers' },
         { $match: { 'sellers.sellerId': sellerId } },
         { $group: { _id: null, total: { $sum: '$sellers.subtotal' } } }
-      ]),
-      Order.aggregate([
-        { $match: { 'sellers.sellerId': sellerId, status: { $in: ['confirmed', 'delivered'] }, createdAt: { $gte: start, $lte: end } } },
-        { $unwind: '$sellers' },
-        { $match: { 'sellers.sellerId': sellerId } },
-        { $group: { _id: null, total: { $sum: '$sellers.sellerEarnings' } } }
       ]),
       Order.find({ 'sellers.sellerId': sellerId })
         .populate('user', 'name email phoneNumber')
@@ -86,7 +82,10 @@ const getSellerStats = async (req, res) => {
           totalProducts,
           totalOrders,
           totalSales: totalSales[0]?.total || 0,
-          totalEarnings: totalEarnings[0]?.total || 0,
+          totalEarnings: user?.totalEarnings || 0,
+          totalWithdrawn: user?.totalWithdrawn || 0,
+          cashBox: user?.cashBox || 0,
+          pendingWithdrawals: user?.pendingWithdrawals || 0,
           pendingOrders,
           lowStockCount: lowStockProducts.length
         },
@@ -252,17 +251,17 @@ const updateSellerOrder = async (req, res) => {
         'cancelled': -1, 'returned': -1, 'refunded': -1
       };
       
-      const currentMinStatus = Math.min(...order.sellers.map(s => statusPriority[s.status || 'pending'] || 0));
       const targetStatusPriority = statusPriority[status] || 0;
       
-      // If the target status is higher than the current collective status, we might not update global yet
-      // unless it's a critical one like 'cancelled'
-      if (status === 'cancelled') {
-        // One seller cancelling their part might not cancel the whole order if others can fulfill
-        // But for now, let's keep it simple as Requested.
-        if (isSingleSeller) order.status = 'cancelled';
-      } else if (targetStatusPriority <= currentMinStatus) {
-        // All sellers are at least at this status or higher
+      // Update this seller's status
+      order.sellers[sellerIndex].status = status;
+
+      // Check if all sellers have reached or passed the target status
+      const allSellersReached = order.sellers.every(s => 
+        (statusPriority[s.status] || 0) >= targetStatusPriority
+      );
+
+      if (allSellersReached) {
         order.status = status;
       }
     }
@@ -332,29 +331,21 @@ const requestWithdrawal = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Minimum withdrawal is ৳100' });
     }
 
-    const sellerId = new mongoose.Types.ObjectId(req.user.id);
-
-    const [earnings, pendingWithdrawals] = await Promise.all([
-      Order.aggregate([
-        { $match: { 'sellers.sellerId': sellerId, status: 'delivered' } },
-        { $unwind: '$sellers' },
-        { $match: { 'sellers.sellerId': sellerId } },
-        { $group: { _id: null, totalEarnings: { $sum: '$sellers.sellerEarnings' } } }
-      ]),
-      Transaction.aggregate([
-        { $match: { user: req.user.id, type: 'Cash Out', status: 'pending' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ])
-    ]);
-
-    const availableBalance = (earnings[0]?.totalEarnings || 0) - (pendingWithdrawals[0]?.total || 0);
+    // Ensure balance is synced before checking
+    const syncedUser = await syncSellerBalance(req.user.id);
+    const availableBalance = syncedUser.cashBox;
 
     if (amount > availableBalance) {
       return res.status(400).json({
         success: false,
-        message: `Insufficient balance. Available: ৳${availableBalance.toFixed(2)}`
+        message: `Insufficient balance in Cash Box. Available: ৳${availableBalance.toFixed(2)}`
       });
     }
+
+    // Atomically update balances
+    syncedUser.cashBox -= amount;
+    syncedUser.pendingWithdrawals += amount;
+    await syncedUser.save();
 
     const withdrawal = await Transaction.create({
       type: 'Cash Out',
@@ -375,6 +366,24 @@ const requestWithdrawal = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to submit withdrawal request: ' + error.message });
+  }
+};
+
+// @desc    Sync seller balance Manually
+const syncBalance = async (req, res) => {
+  try {
+    const user = await syncSellerBalance(req.user.id);
+    return res.status(200).json({
+      success: true,
+      message: 'Balance synced successfully',
+      balance: {
+        cashBox: user.cashBox,
+        totalEarnings: user.totalEarnings,
+        pendingWithdrawals: user.pendingWithdrawals
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to sync balance: ' + error.message });
   }
 };
 
@@ -544,6 +553,10 @@ const getSellerTransactions = async (req, res) => {
 
 const createSellerTransaction = async (req, res) => {
   try {
+    const { type } = req.body;
+    if (!['Cash In', 'Cash Out'].includes(type)) {
+      return res.status(400).json({ success: false, message: 'Invalid transaction type. Sellers can only create Cash In or Cash Out transactions.' });
+    }
     const transaction = await Transaction.create({ ...req.body, user: req.user.id, status: 'completed' });
     return res.status(201).json({ success: true, transaction });
   } catch (error) {
@@ -578,5 +591,5 @@ module.exports = {
   getSellerStats, getSellerProducts, createSellerProduct, updateSellerProduct, deleteSellerProduct,
   getSellerOrders, updateSellerOrder, getSellerEarnings, requestWithdrawal, getSellerProfile,
   getSellerSales, createSellerSale, getSellerPurchases, createSellerPurchase,
-  getSellerTransactions, createSellerTransaction, getSellerCustomers
+  getSellerTransactions, createSellerTransaction, getSellerCustomers, syncBalance
 };

@@ -45,6 +45,8 @@ const startServer = async () => {
     app.use('/api/seller', require('./src/routes/sellerRoutes'));
     app.use('/api/payment', require('./src/routes/paymentRoutes'));
     app.use('/api/reviews', require('./src/routes/reviewRoutes'));
+    app.use('/api/config', require('./src/routes/configRoutes'));
+    app.use('/api/coupons', require('./src/routes/couponRoutes'));
 
     // FIX: Google OAuth callback must be public (no admin middleware)
     app.get(

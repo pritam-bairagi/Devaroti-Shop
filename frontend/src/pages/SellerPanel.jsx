@@ -5,7 +5,7 @@ import {
   ShoppingBag, TrendingUp, TrendingDown, BarChart3, Plus, X,
   Edit, Trash2, Search, Eye, ArrowUpRight, RefreshCw,
   FileSpreadsheet, Printer, AlertCircle, Clock, CheckCircle2,
-  Wallet, Activity, Loader2, Store, ChevronDown
+  Wallet, Activity, Loader2, Store, ChevronDown, CreditCard, DollarSign
 } from "lucide-react";
 import { useAuth } from "../contexts/useAuth";
 import { sellerAPI } from "../services/api";
@@ -139,7 +139,7 @@ const SellerPanel = () => {
       if (['overview', 'products', 'inventory'].includes(activeTab)) calls.push(sellerAPI.getProducts({ limit: 100 }).catch(() => ({ data: { products: [] } })));
       if (['overview', 'orders'].includes(activeTab)) calls.push(sellerAPI.getOrders({ limit: 50 }).catch(() => ({ data: { orders: [] } })));
       if (['overview', 'customers'].includes(activeTab)) calls.push(sellerAPI.getCustomers().catch(() => ({ data: { customers: [] } })));
-      if (['cashbox', 'transactions'].includes(activeTab)) calls.push(sellerAPI.getTransactions().catch(() => ({ data: { transactions: [] } })));
+      if (['cashbox', 'transactions', 'withdrawals'].includes(activeTab)) calls.push(sellerAPI.getTransactions().catch(() => ({ data: { transactions: [] } })));
       if (activeTab === 'sales') calls.push(sellerAPI.getSales().catch(() => ({ data: { sales: [] } })));
       if (activeTab === 'purchases') calls.push(sellerAPI.getPurchases().catch(() => ({ data: { purchases: [] } })));
 
@@ -247,8 +247,21 @@ const SellerPanel = () => {
   };
 
   const overview = stats.overview || {};
-  const cashIn = transactions.filter(t => t.type === 'Cash In').reduce((s, t) => s + t.amount, 0);
-  const cashOut = transactions.filter(t => t.type === 'Cash Out').reduce((s, t) => s + t.amount, 0);
+  const cashIn = transactions.filter(t => t.type === 'Cash In' || t.type === 'Sale').reduce((s, t) => s + (t.amount || t.totalAmount || 0), 0);
+  const cashOut = transactions.filter(t => t.type === 'Cash Out' || t.type === 'Purchase' || t.type === 'Withdrawal' || t.category === 'withdrawals').reduce((s, t) => s + (t.amount || t.totalAmount || 0), 0);
+  const handleSyncBalance = async () => {
+    try {
+      setLoading(true);
+      await sellerAPI.get('/sync-balance');
+      await fetchData();
+      toast.success('Balance synced successfully!');
+    } catch (err) {
+      toast.error('Failed to sync balance');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const filteredProducts = products.filter(p => !searchQuery || p.name?.toLowerCase().includes(searchQuery.toLowerCase()));
   const filteredOrders = orders.filter(o => !searchQuery || o.orderNumber?.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -256,8 +269,8 @@ const SellerPanel = () => {
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'orders', label: 'Orders', icon: ShoppingCart },
     { id: 'inventory', label: 'Inventory', icon: Package },
-    { id: 'customers', label: 'Customers', icon: Users },
-    { id: 'earnings', label: 'Earnings', icon: Wallet },
+    { id: 'withdrawals', label: 'Withdrawals', icon: CreditCard },
+    { id: 'earnings', label: 'Earnings', icon: DollarSign },
     { id: 'cashbox', label: 'Cash Box', icon: Banknote },
     { id: 'sales', label: 'Sales', icon: ShoppingBag },
     { id: 'purchases', label: 'Purchases', icon: Package },
@@ -309,10 +322,10 @@ const SellerPanel = () => {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               <StatCard title="Products" value={overview.totalProducts || 0} icon={Package} color="#0ea5e9" loading={loading} />
               <StatCard title="Total Orders" value={overview.totalOrders || 0} icon={ShoppingCart} color={PRIMARY} loading={loading} />
-              <StatCard title="Total Sales" value={fmt(overview.totalSales)} icon={ShoppingBag} color="#f59e0b" loading={loading} />
-              <StatCard title="Earnings (net)" value={fmt(overview.totalEarnings)} icon={TrendingUp} color="#10b981" loading={loading} subtitle="After 2% commission" />
-              <StatCard title="Pending Orders" value={overview.pendingOrders || 0} icon={Clock} color="#f59e0b" loading={loading} />
-              <StatCard title="Low Stock" value={overview.lowStockCount || 0} icon={AlertCircle} color="#ef4444" loading={loading} />
+              <StatCard title="Total Sales" value={fmt(overview.totalEarnings)} icon={ShoppingBag} color="#f59e0b" loading={loading} subtitle="Lifetime" />
+              <StatCard title="Available to Withdraw" value={fmt(overview.cashBox)} icon={Banknote} color="#10b981" loading={loading} subtitle="Current Balance" />
+              <StatCard title="Total Withdrawn" value={fmt(overview.totalWithdrawn)} icon={CheckCircle2} color="#8b5cf6" loading={loading} />
+              <StatCard title="Pending" value={fmt(overview.pendingWithdrawals)} icon={Clock} color="#f59e0b" loading={loading} />
             </div>
 
             {/* Sales Chart */}
@@ -528,6 +541,74 @@ const SellerPanel = () => {
                 </div>
               ))}
               {!customers.length && <div className="col-span-3 text-center py-12 text-slate-400">No customers yet</div>}
+            </div>
+          </div>
+        )}
+
+        {/* ==================== WITHDRAWALS ==================== */}
+        {activeTab === 'withdrawals' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+                <p className="text-slate-400 text-sm mb-1 uppercase font-bold tracking-tighter">Available for Withdrawal</p>
+                <h3 className="text-3xl font-black text-white">{fmt(overview.cashBox || 0)}</h3>
+                <p className="text-[10px] text-slate-500 mt-2">Ready to be sent to your account</p>
+              </div>
+              <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+                <p className="text-slate-400 text-sm mb-1 uppercase font-bold tracking-tighter">Pending Requests</p>
+                <h3 className="text-3xl font-black text-amber-500">{fmt(overview.pendingWithdrawals || 0)}</h3>
+                <p className="text-[10px] text-slate-500 mt-2">Awaiting admin approval</p>
+              </div>
+              <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+                <p className="text-slate-400 text-sm mb-1 uppercase font-bold tracking-tighter">Total Withdrawn</p>
+                <h3 className="text-3xl font-black text-emerald-500">{fmt(overview.totalWithdrawn || 0)}</h3>
+                <p className="text-[10px] text-slate-500 mt-2">Lifetime successful payouts</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+              <div className="p-5 border-b border-slate-700 flex justify-between items-center">
+                <h3 className="font-bold text-white uppercase tracking-wider">Withdrawal History</h3>
+                <button 
+                  onClick={() => openModal('withdrawal')}
+                  className="bg-primary text-white px-4 py-2 rounded-lg font-bold hover:bg-opacity-90 transition text-sm flex items-center gap-2"
+                >
+                  <CreditCard size={16} /> Request Withdrawal
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-900/50 text-slate-400 text-xs uppercase">
+                      <th className="px-6 py-4 text-left">Date</th>
+                      <th className="px-6 py-4 text-left">Method</th>
+                      <th className="px-6 py-4 text-left">Account</th>
+                      <th className="px-6 py-4 text-right">Amount</th>
+                      <th className="px-6 py-4 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transactions.filter(t => t.category === 'withdrawals').map(t => (
+                      <tr key={t._id} className="border-b border-slate-700 hover:bg-slate-700/50 transition">
+                        <td className="px-6 py-4 text-slate-300">{new Date(t.createdAt).toLocaleDateString()}</td>
+                        <td className="px-6 py-4">
+                          <span className="bg-slate-700 text-slate-200 px-2 py-1 rounded text-xs">{t.paymentMethod}</span>
+                        </td>
+                        <td className="px-6 py-4 text-slate-400 font-mono text-xs">
+                          {t.metadata?.accountNumber || t.description.split(': ')[1]}
+                        </td>
+                        <td className="px-6 py-4 text-right font-bold text-white">{fmt(t.amount)}</td>
+                        <td className="px-6 py-4 text-center">
+                          <Badge status={t.status === 'completed' ? 'paid' : t.status === 'failed' ? 'cancelled' : 'pending'} />
+                        </td>
+                      </tr>
+                    ))}
+                    {!transactions.filter(t => t.category === 'withdrawals').length && (
+                      <tr><td colSpan={5} className="py-10 text-center text-slate-500">No withdrawal records found</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -759,6 +840,23 @@ const SellerPanel = () => {
                 </div>
               ))}
             </div>
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-slate-400 text-xs uppercase tracking-wider font-semibold">Total Earnings</p>
+                <div className="p-2 bg-emerald-500/10 rounded-lg">
+                  <DollarSign size={16} className="text-emerald-500" />
+                </div>
+              </div>
+              <h3 className="text-xl font-black text-white">{fmt(stats.overview?.totalEarnings || 0)}</h3>
+              <button
+                onClick={handleSyncBalance}
+                disabled={loading}
+                className="mt-2 text-[10px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors"
+                title="Refresh balance from order history"
+              >
+                <RefreshCw size={10} className={loading ? 'animate-spin' : ''} /> Sync Balance
+              </button>
+            </div>
             <div className="flex justify-between bg-slate-900 rounded-lg px-3 py-2">
               <span className="text-slate-400">Total</span>
               <span className="text-orange-400 font-bold">{fmt(selectedItem.totalPrice)}</span>
@@ -829,7 +927,7 @@ const SellerPanel = () => {
       <Modal open={modals.addTransaction} onClose={() => closeModal('addTransaction')} title="Add Transaction">
         <form onSubmit={handleAddTransaction} className="space-y-4">
           <Select label="Type" value={transactionForm.type} onChange={e => setTransactionForm(p => ({ ...p, type: e.target.value }))}>
-            {['Cash In', 'Cash Out', 'Sale', 'Purchase', 'Expense'].map(t => <option key={t}>{t}</option>)}
+            {['Cash In', 'Cash Out'].map(t => <option key={t}>{t}</option>)}
           </Select>
           <Input label="Amount (৳) *" type="number" min="0" required value={transactionForm.amount} onChange={e => setTransactionForm(p => ({ ...p, amount: e.target.value }))} />
           <Input label="Description *" required value={transactionForm.description} onChange={e => setTransactionForm(p => ({ ...p, description: e.target.value }))} />
@@ -845,8 +943,26 @@ const SellerPanel = () => {
 
       {/* Withdrawal */}
       <Modal open={modals.withdrawal} onClose={() => closeModal('withdrawal')} title="Request Withdrawal">
-        <div className="mb-4 bg-slate-900 rounded-lg p-3">
-          <p className="text-sm text-slate-400">Available Balance: <span className="text-emerald-400 font-bold">{fmt(overview.totalEarnings)}</span></p>
+        <div className="mb-4 bg-slate-900 rounded-lg p-4 border border-slate-700">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-xs text-slate-400 uppercase font-bold">Total Lifetime Sales</span>
+            <span className="text-white font-mono">{fmt(overview.totalEarnings)}</span>
+          </div>
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-xs text-slate-400 uppercase font-bold">Already Withdrawn</span>
+            <span className="text-slate-300 font-mono">{fmt(overview.totalWithdrawn)}</span>
+          </div>
+          {overview.pendingWithdrawals > 0 && (
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs text-slate-400 uppercase font-bold">Pending Withdrawal</span>
+              <span className="text-orange-400 font-mono">{fmt(overview.pendingWithdrawals)}</span>
+            </div>
+          )}
+          <div className="h-px bg-slate-700 my-2" />
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-emerald-400 font-bold uppercase">Available for Withdrawal</span>
+            <span className="text-emerald-400 font-black text-xl font-mono">{fmt(overview.cashBox)}</span>
+          </div>
         </div>
         <form onSubmit={handleWithdrawal} className="space-y-4">
           <Input label="Amount (৳) *" type="number" min="100" required value={withdrawalForm.amount} onChange={e => setWithdrawalForm(p => ({ ...p, amount: e.target.value }))} placeholder="Minimum ৳100" />

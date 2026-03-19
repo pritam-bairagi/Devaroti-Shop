@@ -2,14 +2,15 @@ const Order = require('../models/Order');
 const User = require('../models/User');
 const Product = require('../models/Product');
 const Transaction = require('../models/Transaction');
+const SystemConfig = require('../models/SystemConfig');
 const { validationResult } = require('express-validator');
 const mongoose = require('mongoose');
+const { syncSellerBalance } = require('../utils/balanceUtils');
 
-const VAT_RATE = parseFloat(process.env.VAT_PERCENTAGE || 15) / 100;
-const COMMISSION_RATE = parseFloat(process.env.PLATFORM_COMMISSION || 2) / 100;
-const STANDARD_SHIPPING = parseFloat(process.env.STANDARD_SHIPPING_COST || 60);
-const EXPRESS_SHIPPING = parseFloat(process.env.EXPRESS_SHIPPING_COST || 120);
-const FREE_THRESHOLD = parseFloat(process.env.FREE_SHIPPING_THRESHOLD || 1000);
+// Default fallbacks if not in DB
+let VAT_RATE = 0.02; 
+let COMMISSION_RATE = 0.05;
+let STANDARD_SHIPPING = 60;
 
 // @desc    Create new order
 // @route   POST /api/orders
@@ -30,8 +31,8 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No order items provided' });
     }
 
-    if (!shippingAddress || !shippingAddress.addressLine1 || !shippingAddress.city) {
-      return res.status(400).json({ success: false, message: 'Valid shipping address is required' });
+    if (!shippingAddress || !shippingAddress.addressLine1) {
+      return res.status(400).json({ success: false, message: 'Shipping address is required' });
     }
 
     const processedItems = [];
@@ -94,14 +95,28 @@ exports.createOrder = async (req, res) => {
       sellerData.sellerEarnings += sellerEarning;
     }
 
-    let shippingCost = 0;
-    if (calculatedSubtotal < FREE_THRESHOLD) {
-      shippingCost = deliveryOption === 'express' ? EXPRESS_SHIPPING : STANDARD_SHIPPING;
-    }
+    // --- Dynamic Pricing from SystemConfig ---
+    const allConfigs = await SystemConfig.find({ 
+      key: { $in: [
+        'vat_percentage', 'delivery_charge', 
+        'membership_bronze_discount', 'membership_silver_discount', 
+        'membership_gold_discount', 'membership_platinum_discount'
+      ] } 
+    });
+    const configMap = allConfigs.reduce((acc, c) => ({ ...acc, [c.key]: Number(c.value) }), {});
 
-    const discountNum = Number(discount);
-    const vatAmount = (calculatedSubtotal - discountNum) * VAT_RATE;
-    const totalPrice = calculatedSubtotal + shippingCost + vatAmount - discountNum;
+    const vatPercent = configMap.vat_percentage || 2;
+    const shippingCostValue = configMap.delivery_charge !== undefined ? configMap.delivery_charge : 60;
+    
+    // Membership Discount Calculation
+    const userObj = await User.findById(req.user.id);
+    const mLevel = userObj?.membershipLevel?.toLowerCase() || 'bronze';
+    const mDiscountPercent = configMap[`membership_${mLevel}_discount`] || 0;
+    const membershipDiscountAmount = (calculatedSubtotal * mDiscountPercent) / 100;
+
+    const discountNum = (Number(discount) || 0) + membershipDiscountAmount;
+    const vatAmount = (calculatedSubtotal - (Number(discount) || 0)) * (vatPercent / 100);
+    const totalPrice = calculatedSubtotal + shippingCostValue + vatAmount - discountNum;
 
     const isCOD = paymentMethod === 'Cash on Delivery' || paymentMethod === 'cash';
     const paymentStatus = isCOD ? 'pending' : 'processing';
@@ -118,9 +133,9 @@ exports.createOrder = async (req, res) => {
       items: processedItems,
       subtotal: calculatedSubtotal,
       discount: discountNum,
-      vat: VAT_RATE * 100,
+      vat: vatPercent,
       vatAmount,
-      shippingCost,
+      shippingCost: shippingCostValue,
       totalPrice,
       shippingAddress: {
         fullName: shippingAddress.fullName || req.user.name,
@@ -367,6 +382,15 @@ exports.updateOrderStatus = async (req, res) => {
     });
 
     await order.save();
+
+    // Trigger balance sync for all sellers in the order if delivered
+    if (status === 'delivered') {
+      try {
+        await Promise.all(order.sellers.map(s => syncSellerBalance(s.sellerId)));
+      } catch (err) {
+        console.error('Balance sync error in updateOrder:', err);
+      }
+    }
 
     res.status(200).json({ success: true, message: 'Order status updated', order });
   } catch (error) {

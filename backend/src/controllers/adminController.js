@@ -5,6 +5,7 @@ const Sale = require('../models/Sale');
 const Purchase = require('../models/Purchase');
 const Transaction = require('../models/Transaction');
 const { getDashboardStats } = require('../utils/analytics');
+const { syncSellerBalance } = require('../utils/balanceUtils');
 
 // @desc    Get admin dashboard stats
 // @route   GET /api/admin/stats
@@ -227,7 +228,11 @@ const getAllOrders = async (req, res) => {
     const [orders, total] = await Promise.all([
       Order.find(query)
         .populate('user', 'name email phoneNumber')
-        .populate('items.product', 'name image')
+        .populate({
+          path: 'items.product',
+          select: 'name image brand user',
+          populate: { path: 'user', select: 'name shopName' }
+        })
         .sort({ createdAt: -1 })
         .skip((pageNum - 1) * limitNum)
         .limit(limitNum),
@@ -269,6 +274,16 @@ const updateOrder = async (req, res) => {
     });
 
     await order.save();
+
+    // Trigger balance sync for all sellers in the order if delivered
+    if (status === 'delivered') {
+      try {
+        await Promise.all(order.sellers.map(s => syncSellerBalance(s.sellerId)));
+      } catch (err) {
+        console.error('Balance sync error in updateOrder:', err);
+      }
+    }
+
     return res.status(200).json({ success: true, message: 'Order updated', order });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to update order: ' + error.message });
@@ -810,12 +825,111 @@ const getInventoryReport = async (req, res) => {
   }
 };
 
+// @desc    Get system config
+// @route   GET /api/admin/config
+// @access  Private/Admin
+const getSystemConfig = async (req, res) => {
+  try {
+    const configs = await require('../models/SystemConfig').find();
+    const configMap = {};
+    configs.forEach(c => { configMap[c.key] = c.value; });
+    return res.status(200).json({ success: true, configs: configMap });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to fetch config: ' + error.message });
+  }
+};
+
+// @desc    Update system config
+// @route   PUT /api/admin/config
+// @access  Private/Admin
+const updateSystemConfig = async (req, res) => {
+  try {
+    const { key, value, description } = req.body;
+    const SystemConfig = require('../models/SystemConfig');
+    let config = await SystemConfig.findOne({ key });
+    
+    if (config) {
+      config.value = value;
+      if (description) config.description = description;
+      config.updatedBy = req.user.id;
+      await config.save();
+    } else {
+      config = await SystemConfig.create({ key, value, description, updatedBy: req.user.id });
+    }
+    
+    return res.status(200).json({ success: true, message: 'Config updated', config });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to update config: ' + error.message });
+  }
+};
+
+// @desc    Get withdrawal requests
+// @route   GET /api/admin/withdrawals
+// @access  Private/Admin
+const getWithdrawalRequests = async (req, res) => {
+  try {
+    const { status = 'all', page = 1, limit = 20 } = req.query;
+    const query = { category: 'withdrawals' };
+    if (status !== 'all') query.status = status;
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    const [withdrawals, total] = await Promise.all([
+      Transaction.find(query)
+        .populate('user', 'name email shopName totalEarnings')
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum),
+      Transaction.countDocuments(query)
+    ]);
+
+    return res.status(200).json({
+      success: true, withdrawals,
+      pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) }
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to fetch withdrawals: ' + error.message });
+  }
+};
+
+// @desc    Update withdrawal status (Approve/Reject)
+// @route   PUT /api/admin/withdrawals/:id
+// @access  Private/Admin
+const updateWithdrawalStatus = async (req, res) => {
+  try {
+    const { status, adminNotes } = req.body;
+    if (!['completed', 'failed'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status. Use completed or failed.' });
+    }
+
+    const withdrawal = await Transaction.findOne({ _id: req.params.id, category: 'withdrawals' });
+    if (!withdrawal) return res.status(404).json({ success: false, message: 'Withdrawal request not found' });
+    if (withdrawal.status !== 'pending') {
+      return res.status(400).json({ success: false, message: 'Withdrawal already processed' });
+    }
+
+    const user = await User.findById(withdrawal.user);
+    if (!user) return res.status(404).json({ success: false, message: 'Seller not found' });
+
+    withdrawal.status = status;
+    if (adminNotes) withdrawal.description += ` | Admin Note: ${adminNotes}`;
+    
+    await withdrawal.save();
+
+    // Sync balance finally to be sure
+    await syncSellerBalance(user._id);
+
+    return res.status(200).json({ success: true, message: `Withdrawal ${status === 'completed' ? 'approved' : 'rejected'}`, withdrawal });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to update withdrawal: ' + error.message });
+  }
+};
+
 module.exports = {
   getStats, getAllUsers, updateUser, deleteUser, approveSeller,
   getAllOrders, updateOrder, getAllProducts, createProduct, updateProduct, deleteProduct,
-  getTransactions, createTransaction,
-  getSales, createSale, getPurchases, createPurchase,
-  getAnalytics, getSystemLogs,
-  exportData, googleDriveAuth, googleDriveCallback, backupToGoogleDrive,
-  getInventoryReport
+  getTransactions, createTransaction, getSales, createSale, getPurchases, createPurchase,
+  getAnalytics, getSystemLogs, exportData, googleDriveAuth, googleDriveCallback, backupToGoogleDrive,
+  getInventoryReport, getSystemConfig, updateSystemConfig, getWithdrawalRequests, updateWithdrawalStatus
 };

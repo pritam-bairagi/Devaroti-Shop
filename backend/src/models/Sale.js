@@ -41,7 +41,7 @@ const saleSchema = new mongoose.Schema({
   
   paymentMethod: {
     type: String,
-    enum: ['Cash', 'Card', 'bkash', 'nagad', 'rocket', 'bank', 'due'],
+    enum: ['Cash', 'Card', 'bkash', 'nagad', 'rocket', 'bank', 'due', 'bKash', 'Nagad', 'Rocket', 'Bank'],
     default: 'Cash'
   },
   

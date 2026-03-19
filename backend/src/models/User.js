@@ -5,11 +5,10 @@ const crypto = require('crypto');
 // ==================== CONSTANTS ====================
 const USER_ROLES = ['user', 'admin', 'seller', 'courier'];
 const PAYMENT_METHODS = ['bkash', 'nagad', 'bank', 'rocket'];
-const USER_LEVELS = ['Plastic', 'Bronze', 'Silver', 'Gold', 'Platinum', 'VIP'];
+const USER_LEVELS = ['Bronze', 'Silver', 'Gold', 'Platinum', 'VIP'];
 
 const LEVEL_CONFIG = {
-  Plastic:  { color: '#ff5500', minSpent: 0,      maxSpent: 4999 },
-  Bronze:   { color: '#CD7F32', minSpent: 5000,   maxSpent: 9999 },
+  Bronze:   { color: '#CD7F32', minSpent: 0,      maxSpent: 9999 },
   Silver:   { color: '#C0C0C0', minSpent: 10000,  maxSpent: 49999 },
   Gold:     { color: '#FFD700', minSpent: 50000,  maxSpent: 99999 },
   Platinum: { color: '#E5E4E2', minSpent: 100000, maxSpent: 499999 },
@@ -65,8 +64,8 @@ const userSchema = new mongoose.Schema({
   bio:      { type: String, maxlength: [200, 'Bio cannot be more than 200 characters'] },
   location: { type: String, maxlength: [100, 'Location cannot be more than 100 characters'] },
 
-  level:      { type: String, enum: USER_LEVELS, default: 'Plastic' },
-  levelColor: { type: String, default: '#ff5500' },
+  level:      { type: String, enum: USER_LEVELS, default: 'Bronze' },
+  levelColor: { type: String, default: '#CD7F32' },
 
   totalSpent:  { type: Number, default: 0, min: [0, 'Total spent cannot be negative'] },
   orderCount:  { type: Number, default: 0, min: [0, 'Order count cannot be negative'] },
@@ -96,7 +95,8 @@ const userSchema = new mongoose.Schema({
 
   cashBox:            { type: Number, default: 0, min: [0, 'Cash box cannot be negative'] },
   totalEarnings:      { type: Number, default: 0, min: [0, 'Total earnings cannot be negative'] },
-  pendingWithdrawals: { type: Number, default: 0, min: [0, 'Pending withdrawals cannot be negative'] },
+  totalWithdrawn:      { type: Number, default: 0, min: [0, 'Total withdrawn cannot be negative'] },
+  pendingWithdrawals:  { type: Number, default: 0, min: [0, 'Pending withdrawals cannot be negative'] },
 
   cart: [{
     product:  { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
@@ -205,7 +205,7 @@ userSchema.methods.updateLevel = function () {
   else if (spent >= LEVEL_CONFIG.Gold.minSpent)     { this.level = 'Gold';     this.levelColor = LEVEL_CONFIG.Gold.color; }
   else if (spent >= LEVEL_CONFIG.Silver.minSpent)   { this.level = 'Silver';   this.levelColor = LEVEL_CONFIG.Silver.color; }
   else if (spent >= LEVEL_CONFIG.Bronze.minSpent)   { this.level = 'Bronze';   this.levelColor = LEVEL_CONFIG.Bronze.color; }
-  else                                               { this.level = 'Plastic';  this.levelColor = LEVEL_CONFIG.Plastic.color; }
+  else                                               { this.level = 'Bronze';   this.levelColor = LEVEL_CONFIG.Bronze.color; }
   return this.level;
 };
 
